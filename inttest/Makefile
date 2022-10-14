@@ -1,6 +1,8 @@
-.PHONY: inttest-csrx
+.PHONY: all inttest inttest-csrx
 
-all: inttest-csrx
+all: inttest 
+
+inttest: inttest-csrx
 
 inttest-csrx:
 	docker network rm -f inttest_default

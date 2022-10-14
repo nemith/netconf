@@ -41,7 +41,7 @@ jobs:
       - uses: docker/login-action@v2
         with:
           registry: ghcr.io
-          username: $
+          username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: actions/setup-go@v3

@@ -1,7 +1,6 @@
 package inttest
 
 import (
-	"bytes"
 	"strconv"
 	"testing"
 )
@@ -9,7 +8,6 @@ import (
 type logWriter struct {
 	t      *testing.T
 	prefix string
-	buf    bytes.Buffer
 }
 
 func newLogWriter(prefix string, t *testing.T) *logWriter {

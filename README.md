@@ -83,7 +83,7 @@ Juniper's cSRX supports very basic netconf support.  It only supports SSH (no TL
 To install the image use the following steps:
 
 1. Download the docker cSRX image from https://support.juniper.net/support/downloads/?p=csrxeval.  *At the time of writing the latest eval version is 20.2R1*)
-2. Run `docker image load -i junos-csrx-docker-20.3.R1.8.img`  This will add the image csrx:20.3R1.8 to your local images.
+2. Run `docker image load -i junos-csrx-docker-20.3.R1.8.img`  This will add the image `csrx:20.3R1.8` to your local images.
 
 You can now run the csrx integration tests using Docker which sets up all the enviroment variables for you:
 

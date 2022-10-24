@@ -1,7 +1,13 @@
-.ONESHELL:warning
+.ONESHELL:
 .PHONY: all inttest inttest-csrx
 
-.DEFAULT: 
+.DEFAULT: help 
+
+help:
+	@echo "available targets"
+	@echo "    csrx  Run integration against csrx container (\$$CSRX_IMAGE:$(CSRX_IMAGE))"
+	@echo "    ceos  Run integration against ceos container (\$$CEOS_IMAGE:$(CEOS_IMAGE))" 
+	@echo "    all   Run all integration tests"
 
 all: csrx ceos
 

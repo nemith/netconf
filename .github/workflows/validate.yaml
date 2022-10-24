@@ -12,12 +12,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-
-      - uses: actions/setup-go@v3
-        with:
-          go-version: 1.19
-          cache: true
-
       - run: make lint
 
   test:
@@ -31,13 +25,9 @@ jobs:
           - '1.19'
     steps:
       - uses: actions/checkout@v3
-
-      - uses: actions/setup-go@v3
-        with:
-          go-version: ${{ matrix.go }}
-          cache: true
-
       - run: make test
+        env:
+          GO_VERSION: ${{ matrix.go }}
       
   inttest: 
     name: Integration Tests

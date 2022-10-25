@@ -40,7 +40,10 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [ 'ceos', 'csrx' ]
+        target:
+          - ceos
+          - csrx
+          - confd
     steps:
       - uses: actions/checkout@v3
 

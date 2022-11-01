@@ -10,7 +10,7 @@ import (
 	"os"
 	"time"
 
-	netconf "github.com/nemith/netconf"
+	"github.com/nemith/netconf"
 	nctls "github.com/nemith/netconf/transport/tls"
 )
 
@@ -67,7 +67,7 @@ func Example_tls() {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cfg, err := session.GetConfig(ctx, netconf.Running)
+	cfg, err := session.GetConfig(ctx, "running")
 	if err != nil {
 		panic(err)
 	}

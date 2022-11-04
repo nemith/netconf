@@ -61,7 +61,11 @@
 				
 				<option value="file2">github.com/nemith/netconf/session.go (17.4%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/xml.go (0.0%)</option>
+				<option value="file3">github.com/nemith/netconf/transport/frame.go (49.0%)</option>
+				
+				<option value="file4">github.com/nemith/netconf/transport/ssh/ssh.go (67.9%)</option>
+				
+				<option value="file5">github.com/nemith/netconf/xml.go (0.0%)</option>
 				
 				</select>
 			</div>
@@ -607,7 +611,516 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
 }
 </pre>
 		
-		<pre class="file" id="file3" style="display: none">package netconf
+		<pre class="file" id="file3" style="display: none">package transport
+
+import (
+        "bufio"
+        "bytes"
+        "errors"
+        "fmt"
+        "io"
+        "os"
+        "path/filepath"
+        "time"
+)
+
+// ErrMalformedChunk represents a message that invalid as defined in the chunk
+// framking in RFC6242
+var ErrMalformedChunk = errors.New("netconf: invalid chunk")
+
+type frameReader interface {
+        io.Reader
+        io.ByteReader
+        advance() error
+}
+
+type frameWriter interface {
+        io.WriteCloser
+        isClosed() bool
+}
+
+// Framer is a wrapper used for transports that implement the framing defined in
+// RFC6242.  This supports End-of-Message and Chucked framing methods and
+// will move from End-of-Message to Chunked framing after the `Upgrade` method
+// has been called.
+//
+// This is not a transport on it's own (missing the `Close` method) and is
+// intended to be embedded into other transports.
+type Framer struct {
+        r io.Reader
+        w io.Writer
+
+        br *bufio.Reader
+        bw *bufio.Writer
+
+        curReader frameReader
+        curWriter frameWriter
+
+        upgraded bool
+}
+
+// NewFramer return a new Framer to be used against the given io.Reader and io.Writer.
+func NewFramer(r io.Reader, w io.Writer) *Framer <span class="cov0" title="0">{
+        f := &amp;Framer{
+                r:  r,
+                w:  w,
+                br: bufio.NewReader(r),
+                bw: bufio.NewWriter(w),
+        }
+
+        capDir := os.Getenv("GONETCONF_FRAMED_CAPDIR")
+        if capDir != "" </span><span class="cov0" title="0">{
+                if err := os.MkdirAll(capDir, 0o755); err != nil </span><span class="cov0" title="0">{
+                        panic(fmt.Sprintf("GO_NETCONF_FRAMER: failed to create capture output dir: %v", err))</span>
+                }
+
+                <span class="cov0" title="0">ts := time.Now().Format(time.RFC3339)
+
+                inFilename := filepath.Join(capDir, ts+".in")
+                inf, err := os.Create(inFilename)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))</span>
+                }
+
+                <span class="cov0" title="0">outFilename := filepath.Join(capDir, ts+".out")
+                outf, err := os.Create(outFilename)
+                if err != nil </span><span class="cov0" title="0">{
+                        panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))</span>
+                }
+
+                <span class="cov0" title="0">f.DebugCapture(inf, outf)</span>
+        }
+
+        <span class="cov0" title="0">return f</span>
+}
+
+// DebugCapture will copy all *framed* input/output to the the given
+// `io.Writers` for sent or recv data.  Either sent of recv can be nil to not
+// capture any data.  Useful for displaying to a screen or capturing to a file
+// for debugging.
+//
+// This needs to be called before `MsgReader` or `MsgWriter`.
+func (f *Framer) DebugCapture(in io.Writer, out io.Writer) <span class="cov0" title="0">{
+        // XXX: should there be a sentinal flag to indicate write/read has been done already?
+        if f.curReader != nil ||
+                f.curWriter != nil ||
+                f.bw.Buffered() &gt; 0 ||
+                f.br.Buffered() &gt; 0 </span><span class="cov0" title="0">{
+                panic("debug capture added with active reader or writer")</span>
+        }
+
+        <span class="cov0" title="0">if out != nil </span><span class="cov0" title="0">{
+                f.w = io.MultiWriter(f.w, out)
+                f.bw = bufio.NewWriter(f.w)
+        }</span>
+
+        <span class="cov0" title="0">if in != nil </span><span class="cov0" title="0">{
+                f.r = io.TeeReader(f.r, in)
+                f.br = bufio.NewReader(f.r)
+        }</span>
+}
+
+// Upgrade will cause the Framer to switch from End-of-Message framing to
+// Chunked framing.  This is usually called after netconf exchanged the hello
+// messages.
+func (t *Framer) Upgrade() <span class="cov0" title="0">{
+        // XXX: do we need to protect against race conditions (atomic/mutux?)
+        t.upgraded = true
+}</span>
+
+// MsgReader returns a new io.Reader that is good for reading exactly one netconf
+// message.
+//
+// Only one reader can be used at a time.  When this is called with an existing
+// reader then the underlying reader is avanced to the start of the next message
+// and invalidates the old reader before returning a new one.
+func (t *Framer) MsgReader() (io.Reader, error) <span class="cov0" title="0">{
+        if t.curReader != nil </span><span class="cov0" title="0">{
+                if err := t.curReader.advance(); err != nil </span><span class="cov0" title="0">{
+                        return nil, err
+                }</span>
+        }
+
+        <span class="cov0" title="0">if t.upgraded </span><span class="cov0" title="0">{
+                t.curReader = &amp;chunkReader{r: t.br}
+        }</span> else<span class="cov0" title="0"> {
+                t.curReader = &amp;eomReader{r: t.br}
+        }</span>
+        <span class="cov0" title="0">return t.curReader, nil</span>
+}
+
+// MsgWriter returns an io.WriterCloser that is good for writing exactly one
+// netconf message.
+//
+// One one writer can be used at one time and calling this function with an
+// existing, unclosed,  writer will result in an error.
+func (t *Framer) MsgWriter() (io.WriteCloser, error) <span class="cov0" title="0">{
+        if t.curWriter != nil &amp;&amp; !t.curWriter.isClosed() </span><span class="cov0" title="0">{
+                return nil, ErrExistingWriter
+        }</span>
+
+        <span class="cov0" title="0">if t.upgraded </span><span class="cov0" title="0">{
+                t.curWriter = &amp;chunkWriter{w: t.bw}
+        }</span> else<span class="cov0" title="0"> {
+                t.curWriter = &amp;eomWriter{w: t.bw}
+        }</span>
+        <span class="cov0" title="0">return t.curWriter, nil</span>
+}
+
+var endOfChunks = []byte("\n##\n")
+
+type chunkReader struct {
+        r         *bufio.Reader
+        chunkLeft int
+}
+
+func (r *chunkReader) advance() error <span class="cov0" title="0">{
+        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+
+        <span class="cov0" title="0">for </span><span class="cov0" title="0">{
+                if r.chunkLeft &lt;= 0 </span><span class="cov0" title="0">{
+                        err := r.readHeader()
+                        switch err </span>{
+                        case nil:<span class="cov0" title="0">
+                                break</span>
+                        case io.EOF:<span class="cov0" title="0">
+                                return nil</span>
+                        default:<span class="cov0" title="0">
+                                return err</span>
+                        }
+                }
+
+                <span class="cov0" title="0">if _, err := r.r.Discard(r.chunkLeft); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
+}
+
+func (r *chunkReader) readHeader() error <span class="cov8" title="1">{
+        peeked, err := r.r.Peek(4)
+        switch err </span>{
+        case nil:<span class="cov8" title="1">
+                break</span>
+        case io.EOF:<span class="cov8" title="1">
+                return io.ErrUnexpectedEOF</span>
+        default:<span class="cov0" title="0">
+                return err</span>
+        }
+
+        <span class="cov8" title="1">if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        // make sure the preable of `\n#` which is used for both the start of a
+        // chuck and the end-of-chunk marker is valid.
+        <span class="cov8" title="1">if peeked[0] != '\n' || peeked[1] != '#' </span><span class="cov8" title="1">{
+                return ErrMalformedChunk
+        }</span>
+
+        // check to see if we are at the end of the read
+        <span class="cov8" title="1">if peeked[2] == '#' &amp;&amp; peeked[3] == '\n' </span><span class="cov8" title="1">{
+                if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+                <span class="cov8" title="1">return io.EOF</span>
+        }
+
+        <span class="cov8" title="1">var n int
+        for </span><span class="cov8" title="1">{
+                c, err := r.r.ReadByte()
+                if err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+
+                <span class="cov8" title="1">if c == '\n' </span><span class="cov8" title="1">{
+                        break</span>
+                }
+                <span class="cov8" title="1">if c &lt; '0' || c &gt; '9' </span><span class="cov8" title="1">{
+                        return ErrMalformedChunk
+                }</span>
+                <span class="cov8" title="1">n = n*10 + int(c) - '0'</span>
+        }
+
+        <span class="cov8" title="1">const maxChunk = 4294967295
+        if n &lt; 1 || n &gt; maxChunk </span><span class="cov8" title="1">{
+                return ErrMalformedChunk
+        }</span>
+
+        <span class="cov8" title="1">r.chunkLeft = n
+        return nil</span>
+}
+
+func (r *chunkReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
+        if r.r == nil </span><span class="cov0" title="0">{
+                return 0, ErrInvalidIO
+        }</span>
+
+        // still reading existing chunk
+        <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
+                if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
+                        return 0, err
+                }</span>
+        }
+
+        <span class="cov8" title="1">if len(p) &gt; r.chunkLeft </span><span class="cov8" title="1">{
+                p = p[:r.chunkLeft]
+        }</span>
+
+        <span class="cov8" title="1">n, err := r.r.Read(p)
+        r.chunkLeft -= n
+        return n, err</span>
+}
+
+func (r *chunkReader) ReadByte() (byte, error) <span class="cov8" title="1">{
+        if r.r == nil </span><span class="cov0" title="0">{
+                return 0, ErrInvalidIO
+        }</span>
+
+        // still reading existing chunk
+        <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
+                if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
+                        return 0, err
+                }</span>
+        }
+
+        <span class="cov8" title="1">b, err := r.r.ReadByte()
+        if err != nil </span><span class="cov0" title="0">{
+                return 0, err
+        }</span>
+        <span class="cov8" title="1">r.chunkLeft--
+        return b, nil</span>
+
+}
+
+type chunkWriter struct {
+        w *bufio.Writer
+}
+
+func (w *chunkWriter) Write(p []byte) (int, error) <span class="cov8" title="1">{
+        if w.w == nil </span><span class="cov0" title="0">{
+                return 0, ErrInvalidIO
+        }</span>
+
+        <span class="cov8" title="1">if _, err := fmt.Fprintf(w.w, "\n#%d\n", len(p)); err != nil </span><span class="cov0" title="0">{
+                return 0, err
+        }</span>
+
+        <span class="cov8" title="1">return w.w.Write(p)</span>
+}
+
+func (w *chunkWriter) Close() error <span class="cov8" title="1">{
+        // poison the writer to prevent writes after close
+        defer func() </span><span class="cov8" title="1">{ w.w = nil }</span>()
+        <span class="cov8" title="1">if _, err := w.w.Write(endOfChunks); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">return w.w.Flush()</span>
+}
+
+func (w *chunkWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
+
+var endOfMsg = []byte("]]&gt;]]&gt;")
+
+type eomReader struct {
+        r *bufio.Reader
+}
+
+func (r *eomReader) advance() error <span class="cov0" title="0">{
+        // poison the reader so that it can no longer be used
+        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+
+        <span class="cov0" title="0">var err error
+        for err == nil </span><span class="cov0" title="0">{
+                _, err = r.ReadByte()
+                if err == io.EOF </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+        }
+        <span class="cov0" title="0">return err</span>
+}
+
+func (r *eomReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
+        // This probably isn't optimal however it looks like xml.Decoder
+        // mainly just called ReadByte() and this probably won't ever be
+        // used.
+        for i := 0; i &lt; len(p); i++ </span><span class="cov8" title="1">{
+                b, err := r.ReadByte()
+                if err != nil </span><span class="cov8" title="1">{
+                        return i, err
+                }</span>
+                <span class="cov8" title="1">p[i] = b</span>
+        }
+        <span class="cov0" title="0">return len(p), nil</span>
+}
+
+func (r *eomReader) ReadByte() (byte, error) <span class="cov8" title="1">{
+        if r.r == nil </span><span class="cov0" title="0">{
+                return 0, ErrInvalidIO
+        }</span>
+
+        <span class="cov8" title="1">b, err := r.r.ReadByte()
+        if err != nil </span><span class="cov8" title="1">{
+                if err == io.EOF </span><span class="cov8" title="1">{
+                        return b, io.ErrUnexpectedEOF
+                }</span>
+                <span class="cov0" title="0">return b, err</span>
+        }
+
+        // look for the end of the message marker
+        <span class="cov8" title="1">if b == endOfMsg[0] </span><span class="cov8" title="1">{
+                peeked, err := r.r.Peek(len(endOfMsg) - 1)
+                if err != nil </span><span class="cov8" title="1">{
+                        if err == io.EOF </span><span class="cov8" title="1">{
+                                return 0, io.ErrUnexpectedEOF
+                        }</span>
+                        <span class="cov0" title="0">return 0, err</span>
+                }
+
+                // check if we are at the end of the message
+                <span class="cov8" title="1">if bytes.Equal(peeked, endOfMsg[1:]) </span><span class="cov8" title="1">{
+                        if _, err := r.r.Discard(len(endOfMsg) - 1); err != nil </span><span class="cov0" title="0">{
+                                return 0, err
+                        }</span>
+
+                        <span class="cov8" title="1">return 0, io.EOF</span>
+                }
+        }
+
+        <span class="cov8" title="1">return b, nil</span>
+}
+
+type eomWriter struct {
+        w *bufio.Writer
+}
+
+func (w *eomWriter) Write(p []byte) (int, error) <span class="cov8" title="1">{
+        if w.w == nil </span><span class="cov0" title="0">{
+                return 0, ErrInvalidIO
+        }</span>
+        <span class="cov8" title="1">return w.w.Write(p)</span>
+}
+
+func (w *eomWriter) Close() error <span class="cov8" title="1">{
+        // poison the writer to prevent writes after close
+        defer func() </span><span class="cov8" title="1">{ w.w = nil }</span>()
+
+        <span class="cov8" title="1">if err := w.w.WriteByte('\n'); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if _, err := w.w.Write(endOfMsg); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">return w.w.Flush()</span>
+}
+
+func (w *eomWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
+</pre>
+		
+		<pre class="file" id="file4" style="display: none">package ssh
+
+import (
+        "context"
+        "fmt"
+        "net"
+
+        "github.com/nemith/netconf/transport"
+        "golang.org/x/crypto/ssh"
+)
+
+// alias it to a private type so we can make it private when embedding
+type framer = transport.Framer
+
+// Transport implements RFC6242 for implementing NETCONF protocol over SSH.
+type Transport struct {
+        c    *ssh.Client
+        sess *ssh.Session
+
+        // indicate that we "own" the client and should close it with the session
+        // when the transport is closed.
+        ownedClient bool
+
+        *framer
+}
+
+// Dial will connect to a ssh server and issues a transport, it's used as a
+// convience function as essnetial is the same as
+//
+//                c, err := ssh.Dial(network, addr, config)
+//                 if err != nil { /* ... handle error ... */ }
+//                 t, err := NewTransport(c)
+//
+// When the transport is closed the underlying connection is also closed.
+func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (*Transport, error) <span class="cov8" title="1">{
+        d := net.Dialer{Timeout: config.Timeout}
+        conn, err := d.DialContext(ctx, network, addr)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+        <span class="cov8" title="1">client := ssh.NewClient(sshConn, chans, reqs)
+        return newTransport(client, true)</span>
+}
+
+// NewTransport will create a new ssh transport as defined in RFC6242 for use
+// with netconf.  Unlike Dial, the underlying client will not be automatically
+// closed when the transport is closed (however any sessions and subsystems
+// are still closed).
+func NewTransport(client *ssh.Client) (*Transport, error) <span class="cov0" title="0">{
+        return newTransport(client, false)
+}</span>
+
+func newTransport(client *ssh.Client, owned bool) (*Transport, error) <span class="cov8" title="1">{
+        sess, err := client.NewSession()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create ssh session: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">w, err := sess.StdinPipe()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create stdin pipe: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">r, err := sess.StdoutPipe()
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to create stdout pipe: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">const subsystem = "netconf"
+        if err := sess.RequestSubsystem(subsystem); err != nil </span><span class="cov0" title="0">{
+                return nil, fmt.Errorf("failed to start netconf ssh subsytem: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">return &amp;Transport{
+                c:           client,
+                ownedClient: owned,
+                sess:        sess,
+
+                framer: transport.NewFramer(r, w),
+        }, nil</span>
+}
+
+// Close will close the underlying transport.  If the connection was created
+// with Dial then then underlying ssh.Client is closed as well.  If not only
+// the sessions is closed.
+func (t *Transport) Close() error <span class="cov8" title="1">{
+        if err := t.sess.Close(); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">if t.ownedClient </span><span class="cov8" title="1">{
+                return t.c.Close()
+        }</span>
+
+        <span class="cov0" title="0">return nil</span>
+}
+</pre>
+		
+		<pre class="file" id="file5" style="display: none">package netconf
 
 import (
         "encoding/xml"

@@ -33,7 +33,7 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
 
-      - run: go test $(go list ./... github.com/nemith/netconf/inttest)
+      - run: go test ./...
 
   inttest:
     name: Integration Tests

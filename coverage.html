@@ -59,13 +59,13 @@
 				
 				<option value="file1">github.com/nemith/netconf/msg.go (0.0%)</option>
 				
-				<option value="file2">github.com/nemith/netconf/session.go (17.4%)</option>
+				<option value="file2">github.com/nemith/netconf/ops.go (91.4%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/transport/frame.go (49.0%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (56.6%)</option>
 				
-				<option value="file4">github.com/nemith/netconf/transport/ssh/ssh.go (67.9%)</option>
+				<option value="file4">github.com/nemith/netconf/transport/frame.go (49.0%)</option>
 				
-				<option value="file5">github.com/nemith/netconf/xml.go (0.0%)</option>
+				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (67.9%)</option>
 				
 				</select>
 			</div>
@@ -163,7 +163,6 @@ func (cs capabilitySet) All() []string <span class="cov8" title="1">{
 		<pre class="file" id="file1" style="display: none">package netconf
 
 import (
-        "context"
         "encoding/xml"
         "time"
 )
@@ -175,14 +174,14 @@ type HelloMsg struct {
         Capabilities []string `xml:"capabilities&gt;capability"`
 }
 
-// rpcMsg maps the xml value of &lt;rpc&gt; in RFC6241
+// RPCMsg maps the xml value of &lt;rpc&gt; in RFC6241
 type RPCMsg struct {
         XMLName   xml.Name    `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
         MessageID uint64      `xml:"message-id,attr"`
         Operation interface{} `xml:",innerxml"`
 }
 
-// rpcReplyMsg maps the xml value of &lt;rpc-reply&gt; in RFC6241
+// RPCReplyMsg maps the xml value of &lt;rpc-reply&gt; in RFC6241
 type RPCReplyMsg struct {
         XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
         MessageID uint64   `xml:"message-id,attr"`
@@ -208,8 +207,6 @@ const (
         SevWarning ErrSeverity = "warning"
 )
 
-type Capability string
-
 type ErrType string
 
 const (
@@ -234,57 +231,381 @@ type RPCError struct {
 func (e RPCError) Error() string <span class="cov0" title="0">{
         return e.Message
 }</span>
-
-// XXX: RPC calls these either Methods or Operations depending on what you look at.
-type GetConfigRPC struct {
-        Source StringElem
-        Filter Filter
-}
-
-type GetConfigResp struct {
-}
-
-func (s *Session) GetConfig(ctx context.Context, source string) ([]byte, error) <span class="cov0" title="0">{
-        method := struct {
-                // XXX do these need namespaced as well?
-                XMLName xml.Name   `xml:"get-config"`
-                Source  StringElem `xml:"source"`
-                // Filter
-        }{Source: StringElem(source)}
-
-        resp := struct {
-                // XXX do these need namespaced as well?
-                XMLName xml.Name `xml:"data"`
-                Config  []byte   `xml:",innerxml"`
-        }{}
-
-        if err := s.Call(ctx, &amp;method, &amp;resp); err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-
-        <span class="cov0" title="0">return resp.Config, nil</span>
-}
-
-type OKResponse struct {
-        Ok SentinalBool `xml:"ok"`
-}
-
-// &lt;get-config&gt;
-//    source, filter
-//
-// &lt;edit-config&gt;
-//    operation,
-
-// &lt;copy-config&gt;
-// &lt;delete-config&gt;
-// &lt;lock&gt;
-// &lt;unlock&gt;
-// &lt;get&gt;
-// &lt;close&gt;  // already implemented and hidden...
-// &lt;kill-session&gt;
 </pre>
 		
 		<pre class="file" id="file2" style="display: none">package netconf
+
+import (
+        "context"
+        "encoding/xml"
+        "fmt"
+        "strings"
+)
+
+type OK bool
+
+func (b *OK) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov8" title="1">{
+        v := &amp;struct{}{}
+        if err := d.DecodeElement(v, &amp;start); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">*b = v != nil
+        return nil</span>
+}
+
+type OKResp struct {
+        OK OK `xml:"ok"`
+}
+
+type Datastore string
+
+func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+        if s == "" </span><span class="cov8" title="1">{
+                return fmt.Errorf("datastores cannot be empty")
+        }</span>
+
+        // XXX: it would be nice to actually just block names with crap in them
+        // instead of escaping them, but we need to find a list of what is allowed.
+        <span class="cov8" title="1">escaped, err := escapeXML(string(s))
+        if err != nil </span><span class="cov0" title="0">{
+                return fmt.Errorf("invalid string element: %w", err)
+        }</span>
+
+        <span class="cov8" title="1">v := struct {
+                Elem string `xml:",innerxml"`
+        }{Elem: "&lt;" + escaped + "/&gt;"}
+        return e.EncodeElement(&amp;v, start)</span>
+}
+
+func escapeXML(input string) (string, error) <span class="cov8" title="1">{
+        buf := &amp;strings.Builder{}
+        if err := xml.EscapeText(buf, []byte(input)); err != nil </span><span class="cov0" title="0">{
+                return "", err
+        }</span>
+        <span class="cov8" title="1">return buf.String(), nil</span>
+}
+
+type URL string
+
+func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+        v := struct {
+                URL string `xml:"url"`
+        }{string(u)}
+        return e.EncodeElement(&amp;v, start)
+}</span>
+
+/*type RawConfig []byte
+
+func (c RawConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+        var v struct {
+                Config struct {
+                        Inner []byte `xml:",innerxml"`
+                } `xml:"config,"`
+        }
+        v.Config.Inner = []byte(c)
+
+        return e.EncodeElement(&amp;v, start)
+}*/
+
+// XXX: these should be typed?
+const (
+        // Running configuration datastore. Required by RFC6241
+        Running Datastore = "running"
+
+        // Candidate configuration configuration datastore.  Supported with the
+        // `:canidate` capability defined in RFC6241 section 8.3
+        Candidate Datastore = "candidate"
+
+        // Startup configuration configuration datastore.  Supported with the
+        // `:startup` capability defined in RFC6241 section 8.7
+        Startup Datastore = "startup" //
+)
+
+type getConfigReq struct {
+        XMLName xml.Name  `xml:"get-config"`
+        Source  Datastore `xml:"source"`
+        // Filter
+}
+
+type getConfigResp struct {
+        XMLName xml.Name `xml:"data"`
+        Config  []byte   `xml:",innerxml"`
+}
+
+// GetConfig implments the &lt;get-config&gt; rpc operation defined in [RFC6241 7.1].
+// `source` is the datastore to query.
+//
+// [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
+func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, error) <span class="cov8" title="1">{
+        req := getConfigReq{
+                Source: source,
+        }
+        var resp getConfigResp
+
+        if err := s.Call(ctx, &amp;req, &amp;resp); err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov8" title="1">return resp.Config, nil</span>
+}
+
+// MergeStrategy defines the strategies for merging configuration in a
+// `&lt;edit-config&gt; operation`.
+//
+// *Note*: in RFC6241 7.2 this is called the `operation` attribute and
+// `default-operation` parameter.  Since the `operation` term is already
+// overloaded this was changed to `MergeStrategy` for a cleaner API.
+type MergeStrategy string
+
+const (
+        // MergeConfig configuration elements are merged together at the level at
+        // which this specified.  Can be used for config elements as well as default
+        // defined with [WithDefaultMergeStrategy] option.
+        MergeConfig MergeStrategy = "merge"
+
+        // ReplaceConfig defines that the incoming config change should replace the
+        // existing config at the level which it is specified.  This can be
+        // specified on indivual config elements or set as the default strategy set
+        // with [WithDefaultMergeStrategy] option.
+        ReplaceConfig MergeStrategy = "replace"
+
+        // NoMergeStategy is only used as a default strategy defined in
+        // [WithDefaultMergeStragegy].  Elements must specific one of the other
+        // stragegies with the `operation` Attribute on elements in the `&lt;config&gt;`
+        // subtree.  Elements without the `operation` attribute are ignored.
+        NoMergeStragegy MergeStrategy = "none"
+
+        // CreateConfig allows a subtree element to be created only if it doesn't
+        // already exist.
+        // This strategy is only used as the `operation` attribute of
+        // a `&lt;config&gt;` element and cannot be used as the defaul strategy.
+        CreateConfig MergeStrategy = "create"
+
+        // DeleteConfig will completely delete subtree from the config only if it
+        // already exists.  This strategy is only used as the `operation` attribute
+        // of a `&lt;config&gt;` element and cannot be used as the defaul strategy.
+        DeleteConfig MergeStrategy = "delete"
+
+        // Removeonfig will remove subtree from the config.  If the subtree doesn't
+        // exist in the datastore then it is siliently skipped.  This strategy is
+        // only used as the `operation` attribute of a `&lt;config&gt;` element and cannot
+        // be used as the defaul strategy.
+        RemoveConfig MergeStrategy = "remove"
+)
+
+// TestStrategy defines the beahvior for testing configuration before applying it in a `&lt;edit-config&gt;` operation.
+//
+// *Note*: in RFC6241 7.2 this is called the `test-option` parameter. Since the `option` term is already
+// overloaded this was changed to `TestStrategy` for a cleaner API.
+type TestStrategy string
+
+const (
+        // TestThenSet will validate the configuration and only if is is valid then
+        // apply the configuration to the datastore.
+        TestThenSet TestStrategy = "test-then-set"
+
+        // SetOnly will not do any testing before applying it.
+        SetOnly TestStrategy = "set"
+
+        // Test only will validation the incoming configiration and return the
+        // results without modifying the underlying store.
+        TestOnly TestStrategy = "test-only"
+)
+
+// ErrorStrategy defines the behavior when an error is encountered during a `&lt;edit-config&gt;` operation.
+//
+// *Note*: in RFC6241 7.2 this is called the `error-option` parameter. Since the `option` term is already
+// overloaded this was changed to `ErrorStrategy` for a cleaner API.
+type ErrorStrategy string
+
+const (
+        // StopOnError will about the `&lt;edit-config&gt;` operation on the first error.
+        StopOnError ErrorStrategy = "stop-on-error"
+
+        // ContinueOnError will continue to parse the configiration data even if an
+        // error is encountered.  Errors are still recorded and reported in the
+        // reply.
+        ContinueOnError ErrorStrategy = "continue-on-error"
+
+        // RollbackOnError will restore the configuration back to before the
+        // `&lt;edit-config&gt;` operation took place.  This requires the device to
+        // support the `:rollback-on-error` capabilitiy.
+        RollbackOnError ErrorStrategy = "rollback-on-error"
+)
+
+type (
+        defaultMergeStrategy MergeStrategy
+        testStrategy         TestStrategy
+        errorStrategy        ErrorStrategy
+)
+
+func (o defaultMergeStrategy) apply(req *editConfigReq) <span class="cov8" title="1">{ req.DefaultMergeStrategy = MergeStrategy(o) }</span>
+func (o testStrategy) apply(req *editConfigReq)         <span class="cov8" title="1">{ req.TestStrategy = TestStrategy(o) }</span>
+func (o errorStrategy) apply(req *editConfigReq)        <span class="cov8" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
+
+// WithDefaultMergeStrategy sets the default config merging strategy for the
+// &lt;edit-config&gt; operation.  Only [Merge], [Replace], and [None] are suppored
+// (the rest of the strategies are for defining as attributed in individual
+// elements inside the `&lt;config&gt;` subtree).
+func WithDefaultMergeStrategy(op MergeStrategy) EditConfigOption <span class="cov8" title="1">{ return defaultMergeStrategy(op) }</span>
+
+// WithTestStrategy sets the `test-option` in the `&lt;edit-config&gt;“ operation.
+// This defines what testing should be done the supplied configuration.  See the
+// documenation on [TestStrategy] for details on each strategy.
+func WithTestStrategy(op TestStrategy) EditConfigOption <span class="cov8" title="1">{ return testStrategy(op) }</span>
+
+// WithErrorStrategy sets the `error-option` in the `&lt;edit-config&gt;` operation.
+// This defines the behavior when errors are encountered applying the supplied
+// config.  See [ErrorStrategy] for the available options.
+func WithErrorStrategy(opt ErrorStrategy) EditConfigOption <span class="cov8" title="1">{ return errorStrategy(opt) }</span>
+
+type editConfigReq struct {
+        XMLName              xml.Name      `xml:"edit-config"`
+        Target               Datastore     `xml:"target"`
+        DefaultMergeStrategy MergeStrategy `xml:"default-operation,omitempty"`
+        TestStrategy         TestStrategy  `xml:"test-option,omitempty"`
+        ErrorStrategy        ErrorStrategy `xml:"error-option,omitempty"`
+        // either of these two values
+        Config interface{} `xml:"config,omitempty"`
+        URL    string      `xml:"url,omitempty"`
+}
+
+// EditOption is a optional arguments to [Session.EditConfig] method
+type EditConfigOption interface {
+        apply(*editConfigReq)
+}
+
+// EditConfig issues the `&lt;edit-config&gt;` operation defined in [RFC6241 7.2] for
+// updating an existing target config datastore.
+//
+// [RFC6241 7.2]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.2
+func (s *Session) EditConfig(ctx context.Context, target Datastore, config interface{}, opts ...EditConfigOption) error <span class="cov8" title="1">{
+        req := editConfigReq{
+                Target: target,
+        }
+
+        // XXX: Should we use reflect here?
+        switch v := config.(type) </span>{
+        case string:<span class="cov8" title="1">
+                req.Config = struct {
+                        Inner []byte `xml:",innerxml"`
+                }{Inner: []byte(v)}</span>
+        case []byte:<span class="cov8" title="1">
+                req.Config = struct {
+                        Inner []byte `xml:",innerxml"`
+                }{Inner: v}</span>
+        case URL:<span class="cov8" title="1">
+                req.URL = string(v)</span>
+        default:<span class="cov8" title="1">
+                req.Config = config</span>
+        }
+
+        <span class="cov8" title="1">for _, opt := range opts </span><span class="cov8" title="1">{
+                opt.apply(&amp;req)
+        }</span>
+
+        <span class="cov8" title="1">var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)</span>
+}
+
+type copyConfigReq struct {
+        XMLName xml.Name    `xml:"copy-config"`
+        Source  interface{} `xml:"source"`
+        Target  interface{} `xml:"target"`
+}
+
+// CopyConfig issues the `&lt;copy-config&gt;` operation as defined in [RFC6241 7.3]
+// for copying an entire config to/from a source and target datastore.
+//
+// A `&lt;config&gt;` element defining a full config can be used as the source.
+//
+// If a device supports the `:url` capability than a [URL] object can be used
+// for the source or target datastore.
+//
+// [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
+func (s *Session) CopyConfig(ctx context.Context, source, target interface{}) error <span class="cov8" title="1">{
+        req := copyConfigReq{
+                Source: source,
+                Target: target,
+        }
+
+        var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+
+type deleteConfigReq struct {
+        XMLName xml.Name  `xml:"delete-config"`
+        Target  Datastore `xml:"target"`
+}
+
+func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+        req := deleteConfigReq{
+                Target: target,
+        }
+
+        var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+
+type lockReq struct {
+        XMLName xml.Name
+        Target  Datastore `xml:"target"`
+}
+
+func (s *Session) Lock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+        req := lockReq{
+                XMLName: xml.Name{Local: "lock"},
+                Target:  target,
+        }
+        var resp OKResp
+
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+
+func (s *Session) Unlock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+        req := lockReq{
+                XMLName: xml.Name{Local: "unlock"},
+                Target:  target,
+        }
+        var resp OKResp
+
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+
+func (s *Session) Get(ctx context.Context /* filter */) error <span class="cov0" title="0">{
+        panic("unimplemented")</span>
+}
+
+type killSessionReq struct {
+        XMLName   xml.Name `xml:"kill-session"`
+        SessionID uint32   `xml:"session-id"`
+}
+
+func (s *Session) KillSession(ctx context.Context, sessionID uint32) error <span class="cov8" title="1">{
+        req := killSessionReq{
+                SessionID: sessionID,
+        }
+        var resp OKResp
+
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+
+type validateReq struct {
+        XMLName xml.Name    `xml:"validate"`
+        Source  interface{} `xml:"source"`
+}
+
+func (s *Session) Validate(ctx context.Context, source interface{}) error <span class="cov8" title="1">{
+        req := validateReq{
+                Source: source,
+        }
+
+        var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)
+}</span>
+</pre>
+		
+		<pre class="file" id="file3" style="display: none">package netconf
 
 import (
         "context"
@@ -331,21 +652,27 @@ type Session struct {
         closing bool
 }
 
-// Open will create a new Session with th=e given transport and open it with the
-// nessesary hello messages.
-func Open(transport transport.Transport, opts ...SessionOption) (*Session, error) <span class="cov0" title="0">{
+func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="1">{
         cfg := sessionConfig{
                 capabilities: DefaultCapabilities,
         }
+
         for _, opt := range opts </span><span class="cov0" title="0">{
                 opt.apply(&amp;cfg)
         }</span>
 
-        <span class="cov0" title="0">s := &amp;Session{
+        <span class="cov8" title="1">s := &amp;Session{
                 tr:         transport,
                 clientCaps: newCapabilitySet(cfg.capabilities...),
                 reqs:       make(map[uint64]chan RPCReplyMsg),
         }
+        return s</span>
+}
+
+// Open will create a new Session with th=e given transport and open it with the
+// nessesary hello messages.
+func Open(transport transport.Transport, opts ...SessionOption) (*Session, error) <span class="cov0" title="0">{
+        s := newSession(transport, opts...)
 
         // this needs a timeout of some sort.
         if err := s.hello(); err != nil </span><span class="cov0" title="0">{
@@ -418,14 +745,14 @@ func (s *Session) ServerCapabilities() []string <span class="cov0" title="0">{
 
 // startElement will walk though a xml.Decode until it finds a start element
 // and returns it.
-func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov0" title="0">{
-        for </span><span class="cov0" title="0">{
+func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="1">{
+        for </span><span class="cov8" title="1">{
                 tok, err := d.Token()
                 if err != nil </span><span class="cov0" title="0">{
                         return nil, err
                 }</span>
 
-                <span class="cov0" title="0">if start, ok := tok.(xml.StartElement); ok </span><span class="cov0" title="0">{
+                <span class="cov8" title="1">if start, ok := tok.(xml.StartElement); ok </span><span class="cov8" title="1">{
                         return &amp;start, nil
                 }</span>
         }
@@ -433,7 +760,7 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov0" 
 
 // recv is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
-func (s *Session) recv() <span class="cov0" title="0">{
+func (s *Session) recv() <span class="cov8" title="1">{
         var (
                 r    io.Reader
                 dec  *xml.Decoder
@@ -441,42 +768,46 @@ func (s *Session) recv() <span class="cov0" title="0">{
                 err  error
         )
 Loop:
-        for </span><span class="cov0" title="0">{
+        for </span><span class="cov8" title="1">{
                 r, err = s.tr.MsgReader()
                 if err != nil </span><span class="cov0" title="0">{
                         break</span>
                 }
-                <span class="cov0" title="0">dec = xml.NewDecoder(r)
+                <span class="cov8" title="1">dec = xml.NewDecoder(r)
 
                 root, err = startElement(dec)
                 if err != nil </span><span class="cov0" title="0">{
                         break</span>
                 }
 
-                // FIXME: This should look for a namspaces as well (strict node?)
-                <span class="cov0" title="0">switch root.Name.Local </span>{
-                case "notification":<span class="cov0" title="0">
+                <span class="cov8" title="1">const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
+
+                switch root.Name </span>{
+                /* Not supported yet. Will implement post beta release
+                case "notification":
                         var notif NotificationMsg
-                        if err := dec.DecodeElement(&amp;notif, root); err != nil </span><span class="cov0" title="0">{
+                        if err := dec.DecodeElement(&amp;notif, root); err != nil {
                                 log.Printf("failed to decode notification message: %v", err)
-                        }</span>
-                        // DO something with this
-                case "rpc-reply":<span class="cov0" title="0">
+                        }
+                */
+                case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
                         var reply RPCReplyMsg
                         if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
+                                // What should we do here?  Kill the connection?
                                 log.Printf("failed to decode rpc-reply message: %v", err)
                         }</span>
-                        <span class="cov0" title="0">ok, ch := s.replyChan(reply.MessageID)
+                        <span class="cov8" title="1">ok, ch := s.replyChan(reply.MessageID)
                         if !ok </span><span class="cov0" title="0">{
+                                // XXX: what should we do here?  Kill the connection?
                                 log.Printf("cannot find reply channel for message-id %d", reply.MessageID)
                                 continue Loop</span>
                         }
-                        <span class="cov0" title="0">ch &lt;- reply</span>
+                        <span class="cov8" title="1">ch &lt;- reply</span>
                 default:<span class="cov0" title="0">
+                        // XXX: should we die here?
                         log.Printf("improper xml message type %q", root.Name.Local)</span>
                 }
         }
-
         <span class="cov0" title="0">s.mu.Lock()
         defer s.mu.Unlock()
 
@@ -495,7 +826,7 @@ Loop:
         <span class="cov0" title="0">log.Fatal(err)</span>
 }
 
-func (s *Session) replyChan(msgID uint64) (bool, chan RPCReplyMsg) <span class="cov0" title="0">{
+func (s *Session) replyChan(msgID uint64) (bool, chan RPCReplyMsg) <span class="cov8" title="1">{
         s.mu.Lock()
         defer s.mu.Unlock()
 
@@ -503,7 +834,7 @@ func (s *Session) replyChan(msgID uint64) (bool, chan RPCReplyMsg) <span class="
         if !ok </span><span class="cov0" title="0">{
                 return false, nil
         }</span>
-        <span class="cov0" title="0">delete(s.reqs, msgID)
+        <span class="cov8" title="1">delete(s.reqs, msgID)
         return true, ch</span>
 }
 
@@ -519,7 +850,7 @@ func (s *Session) writeMsg(v interface{}) error <span class="cov8" title="1">{
         <span class="cov8" title="1">return w.Close()</span>
 }
 
-func (s *Session) send(msg *RPCMsg) (chan RPCReplyMsg, error) <span class="cov0" title="0">{
+func (s *Session) send(msg *RPCMsg) (chan RPCReplyMsg, error) <span class="cov8" title="1">{
         s.mu.Lock()
         defer s.mu.Unlock()
 
@@ -531,29 +862,28 @@ func (s *Session) send(msg *RPCMsg) (chan RPCReplyMsg, error) <span class="cov0"
         }</span>
 
         // cap of 1 makes sure we don't block on send
-        <span class="cov0" title="0">ch := make(chan RPCReplyMsg, 1)
+        <span class="cov8" title="1">ch := make(chan RPCReplyMsg, 1)
         s.reqs[msg.MessageID] = ch
 
         return ch, nil</span>
-
 }
 
 // Do issues a low level RPC call taking in a full RPCMsg and returning the full
 // RPCReplyMsg.  In most cases `Session.Call` will do what you want handling
 // errors and marshaling/unmarshaling your data.`
-func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <span class="cov0" title="0">{
+func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <span class="cov8" title="1">{
         ch, err := s.send(msg)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
 
-        <span class="cov0" title="0">select </span>{
-        case reply, ok := &lt;-ch:<span class="cov0" title="0">
+        <span class="cov8" title="1">select </span>{
+        case reply, ok := &lt;-ch:<span class="cov8" title="1">
                 if !ok </span><span class="cov0" title="0">{
                         // XXX: What error should be returned from here if the channel is closed
                         return nil, io.EOF
                 }</span>
-                <span class="cov0" title="0">return &amp;reply, nil</span>
+                <span class="cov8" title="1">return &amp;reply, nil</span>
         case &lt;-ctx.Done():<span class="cov0" title="0">
                 // remove any existing request
                 s.mu.Lock()
@@ -568,7 +898,7 @@ func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <sp
 
 // Call issues a rpc call for the given NETCONF operation and unmashaling the
 // respose into `resp`.
-func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) error <span class="cov0" title="0">{
+func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) error <span class="cov8" title="1">{
         msg := &amp;RPCMsg{
                 Operation: op,
         }
@@ -578,7 +908,7 @@ func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) er
                 return err
         }</span>
 
-        <span class="cov0" title="0">if resp != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">if resp != nil </span><span class="cov8" title="1">{
                 if err := xml.Unmarshal(reply.Data, resp); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to decode response: %w", err)
                 }</span>
@@ -586,7 +916,7 @@ func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) er
 
         // XXX: Need to handle RPC errors here.
 
-        <span class="cov0" title="0">return nil</span>
+        <span class="cov8" title="1">return nil</span>
 }
 
 // Close will gracefully close the sessions first by sending a `close-session`
@@ -595,6 +925,10 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
         s.mu.Lock()
         s.closing = true
         s.mu.Unlock()
+
+        type closeSession struct {
+                XMLName xml.Name `xml:"close-session"`
+        }
 
         // This may fail so save the error but still close the underlying transport.
         rpcErr := s.Call(ctx, &amp;closeSession{}, nil)
@@ -611,7 +945,7 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
 }
 </pre>
 		
-		<pre class="file" id="file3" style="display: none">package transport
+		<pre class="file" id="file4" style="display: none">package transport
 
 import (
         "bufio"
@@ -1018,7 +1352,7 @@ func (w *eomWriter) Close() error <span class="cov8" title="1">{
 func (w *eomWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
 </pre>
 		
-		<pre class="file" id="file4" style="display: none">package ssh
+		<pre class="file" id="file5" style="display: none">package ssh
 
 import (
         "context"
@@ -1117,59 +1451,6 @@ func (t *Transport) Close() error <span class="cov8" title="1">{
         }</span>
 
         <span class="cov0" title="0">return nil</span>
-}
-</pre>
-		
-		<pre class="file" id="file5" style="display: none">package netconf
-
-import (
-        "encoding/xml"
-        "fmt"
-        "strings"
-)
-
-type StringElem string
-
-func (s StringElem) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov0" title="0">{
-        if s == "" </span><span class="cov0" title="0">{
-                return fmt.Errorf("string elements cannot be empty")
-        }</span>
-
-        <span class="cov0" title="0">escaped, err := escapeXML(string(s))
-        if err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("invalid string element: %w", err)
-        }</span>
-
-        <span class="cov0" title="0">v := struct {
-                Elem string `xml:",innerxml"`
-        }{Elem: "&lt;" + escaped + "/&gt;"}
-        return e.EncodeElement(&amp;v, start)</span>
-}
-
-type SentinalBool bool
-
-func (b SentinalBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov0" title="0">{
-        if !b </span><span class="cov0" title="0">{
-                return nil
-        }</span>
-        <span class="cov0" title="0">return e.EncodeElement(b, start)</span>
-}
-
-func (b *SentinalBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov0" title="0">{
-        v := &amp;struct{}{}
-        if err := d.DecodeElement(v, &amp;start); err != nil </span><span class="cov0" title="0">{
-                return err
-        }</span>
-        <span class="cov0" title="0">*b = v != nil
-        return nil</span>
-}
-
-func escapeXML(input string) (string, error) <span class="cov0" title="0">{
-        buf := &amp;strings.Builder{}
-        if err := xml.EscapeText(buf, []byte(input)); err != nil </span><span class="cov0" title="0">{
-                return "", err
-        }</span>
-        <span class="cov0" title="0">return buf.String(), nil</span>
 }
 </pre>
 		

@@ -46,6 +46,8 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - uses: extractions/setup-just@v1
+
       - name: Run containered integration tests
         env:
           # Private images for testing

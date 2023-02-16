@@ -33,7 +33,8 @@ jobs:
       # matrix here allows us to parallelize these tests
       matrix:
         target:
-          - ceos
+          # Disabling temporarily due to some initialization issues
+          #- ceos
           - csrx
           - confd
           - netopeer2

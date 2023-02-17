@@ -14,11 +14,14 @@ func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	if !b {
 		return nil
 	}
-	v := struct {
-		Elem string `xml:",innerxml"`
-	}{Elem: "<" + start.Name.Local + "/>"}
-	fmt.Println(v)
-	return e.Encode(&v)
+	// This produces a empty start/end tag (i.e <tag></tag>) vs a self-closing
+	// tag (<tag/>() which should be the same in XML, however I know certain
+	// vendors may have issues with this format. We may have to process this
+	// after xml encoding.
+	//
+	// See https://github.com/golang/go/issues/21399
+	// or https://github.com/golang/go/issues/26756 for a different hack.
+	return e.EncodeElement(struct{}{}, start)
 }
 
 func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -411,7 +414,7 @@ func (o persist) apply(req *commitReq) {
 	req.Confirmed = true
 	req.Persist = string(o)
 }
-func (o persistID) apply(req *commitReq) { req.Persist = string(o) }
+func (o persistID) apply(req *commitReq) { req.PersistID = string(o) }
 
 // RollbackOnError will restore the configuration back to before the
 // `<edit-config>` operation took place.  This requires the device to
@@ -438,7 +441,7 @@ func WithPersist(id string) CommitOption { return persist(id) }
 // WithPersistID is used to confirm a previous commit set with a given
 // identifier.  This allows you to confirm a commit from (potentially) another
 // sesssion.
-func WithPersistID(id string) CommitOption { return persistID(id) }
+func WithPersistID(id string) persistID { return persistID(id) }
 
 // Commit will commit a canidate config to the running comming. This requires
 // the device to support the `:canidate` capability.
@@ -448,14 +451,32 @@ func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error {
 		opt.apply(&req)
 	}
 
-	// XXX: Validation of conflicting options.
+	if req.PersistID != "" && req.Confirmed {
+		return fmt.Errorf("PersistID cannot be used with Confirmed/ConfirmedTimeout or Persist options")
+	}
 
 	var resp OKResp
 	return s.Call(ctx, &req, &resp)
 }
 
-/*
-func (s *Session) CancelCommit(ctx context.Context) error {
+// CancelCommitOption is a optional arguments to [Session.CancelCommit] method
+type CancelCommitOption interface {
+	applyCancelCommit(*cancelCommitReq)
+}
+
+func (o persistID) applyCancelCommit(req *cancelCommitReq) { req.PersistID = string(o) }
+
+type cancelCommitReq struct {
+	XMLName   xml.Name `xml:"cancel-commit"`
+	PersistID string   `xml:"persist-id,omitempty"`
+}
+
+func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) error {
+	var req cancelCommitReq
+	for _, opt := range opts {
+		opt.applyCancelCommit(&req)
+	}
+
 	var resp OKResp
 	return s.Call(ctx, &req, &resp)
-}*/
+}

@@ -5,11 +5,23 @@ import (
 	"encoding/xml"
 	"fmt"
 	"strings"
+	"time"
 )
 
-type OK bool
+type ExtantBool bool
 
-func (b *OK) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if !b {
+		return nil
+	}
+	v := struct {
+		Elem string `xml:",innerxml"`
+	}{Elem: "<" + start.Name.Local + "/>"}
+	fmt.Println(v)
+	return e.Encode(&v)
+}
+
+func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	v := &struct{}{}
 	if err := d.DecodeElement(v, &start); err != nil {
 		return err
@@ -19,7 +31,7 @@ func (b *OK) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 }
 
 type OKResp struct {
-	OK OK `xml:"ok"`
+	OK ExtantBool `xml:"ok"`
 }
 
 type Datastore string
@@ -30,7 +42,8 @@ func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	}
 
 	// XXX: it would be nice to actually just block names with crap in them
-	// instead of escaping them, but we need to find a list of what is allowed.
+	// instead of escaping them, but we need to find a list of what is allowed
+	// in an xml tag.
 	escaped, err := escapeXML(string(s))
 	if err != nil {
 		return fmt.Errorf("invalid string element: %w", err)
@@ -368,3 +381,81 @@ func (s *Session) Validate(ctx context.Context, source interface{}) error {
 	var resp OKResp
 	return s.Call(ctx, &req, &resp)
 }
+
+type commitReq struct {
+	XMLName        xml.Name   `xml:"commit"`
+	Confirmed      ExtantBool `xml:"confirmed,omitempty"`
+	ConfirmTimeout int64      `xml:"confirm-timeout,omitempty"`
+	Persist        string     `xml:"persist,omitempty"`
+	PersistID      string     `xml:"persist-id,omitempty"`
+}
+
+// CommitOption is a optional arguments to [Session.Commit] method
+type CommitOption interface {
+	apply(*commitReq)
+}
+
+type confirmed bool
+type confirmedTimeout struct {
+	time.Duration
+}
+type persist string
+type persistID string
+
+func (o confirmed) apply(req *commitReq) { req.Confirmed = true }
+func (o confirmedTimeout) apply(req *commitReq) {
+	req.Confirmed = true
+	req.ConfirmTimeout = int64(o.Seconds())
+}
+func (o persist) apply(req *commitReq) {
+	req.Confirmed = true
+	req.Persist = string(o)
+}
+func (o persistID) apply(req *commitReq) { req.Persist = string(o) }
+
+// RollbackOnError will restore the configuration back to before the
+// `<edit-config>` operation took place.  This requires the device to
+// support the `:rollback-on-error` capabilitiy.
+
+// WithConfirmed will mark the commits as requiring confimation or will rollback
+// after the default timeout on the device (detault should be 600s).  The commit
+// can be confirmed with another `<commit>` call without the confirmed option,
+// extended by calling with `Commit` With `WithConfirmed` or
+// `WithConfirmedTimeout` or canceling the commit with a `CommitCancel` call.
+// This requires the device to support the `:confirmed-commit:1.1` capability.
+func WithConfirmed() CommitOption { return confirmed(true) }
+
+// WithConfirmedTimeout is like `WithConfirmed` but using the given timeout
+// duration instead of the device's default.
+func WithConfirmedTimeout(timeout time.Duration) CommitOption { return confirmedTimeout{timeout} }
+
+// WithPersist allows you to set a identifier to confirm a commit in another
+// sessions.  Confirming the commit requires setting the `WithPersistID` in the
+// following `Commit` call matching the id set on the confirmed commit.  Will
+// mark the commit as confirmed if not already set.
+func WithPersist(id string) CommitOption { return persist(id) }
+
+// WithPersistID is used to confirm a previous commit set with a given
+// identifier.  This allows you to confirm a commit from (potentially) another
+// sesssion.
+func WithPersistID(id string) CommitOption { return persistID(id) }
+
+// Commit will commit a canidate config to the running comming. This requires
+// the device to support the `:canidate` capability.
+func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error {
+	var req commitReq
+	for _, opt := range opts {
+		opt.apply(&req)
+	}
+
+	// XXX: Validation of conflicting options.
+
+	var resp OKResp
+	return s.Call(ctx, &req, &resp)
+}
+
+/*
+func (s *Session) CancelCommit(ctx context.Context) error {
+	var resp OKResp
+	return s.Call(ctx, &req, &resp)
+}*/

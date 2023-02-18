@@ -1,8 +1,9 @@
 package netconf
 
 import (
-	"encoding/xml"
 	"time"
+
+	"github.com/nemith/netconf/internal/xml"
 )
 
 // helloMsg maps the xml value of the <hello> message in RFC6241

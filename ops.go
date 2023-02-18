@@ -2,9 +2,9 @@ package netconf
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
-	"strings"
+
+	"github.com/nemith/netconf/internal/xml"
 )
 
 type OK bool
@@ -29,25 +29,19 @@ func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 		return fmt.Errorf("datastores cannot be empty")
 	}
 
-	// XXX: it would be nice to actually just block names with crap in them
-	// instead of escaping them, but we need to find a list of what is allowed.
-	escaped, err := escapeXML(string(s))
-	if err != nil {
-		return fmt.Errorf("invalid string element: %w", err)
+	//TODO: validate datastore name to be valid XML tag?
+
+	if err := e.EncodeToken(start); err != nil {
+		return err
+	}
+	if err := e.EncodeToken(xml.EmptyElement{Name: xml.Name{Local: string(s)}}); err != nil {
+		return err
+	}
+	if err := e.EncodeToken(start.End()); err != nil {
+		return err
 	}
 
-	v := struct {
-		Elem string `xml:",innerxml"`
-	}{Elem: "<" + escaped + "/>"}
-	return e.EncodeElement(&v, start)
-}
-
-func escapeXML(input string) (string, error) {
-	buf := &strings.Builder{}
-	if err := xml.EscapeText(buf, []byte(input)); err != nil {
-		return "", err
-	}
-	return buf.String(), nil
+	return e.Flush()
 }
 
 type URL string
@@ -87,7 +81,7 @@ const (
 )
 
 type getConfigReq struct {
-	XMLName xml.Name  `xml:"get-config"`
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
 	Source  Datastore `xml:"source"`
 	// Filter
 }
@@ -225,7 +219,7 @@ func WithTestStrategy(op TestStrategy) EditConfigOption { return testStrategy(op
 func WithErrorStrategy(opt ErrorStrategy) EditConfigOption { return errorStrategy(opt) }
 
 type editConfigReq struct {
-	XMLName              xml.Name      `xml:"edit-config"`
+	XMLName              xml.Name      `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 edit-config"`
 	Target               Datastore     `xml:"target"`
 	DefaultMergeStrategy MergeStrategy `xml:"default-operation,omitempty"`
 	TestStrategy         TestStrategy  `xml:"test-option,omitempty"`
@@ -274,7 +268,7 @@ func (s *Session) EditConfig(ctx context.Context, target Datastore, config inter
 }
 
 type copyConfigReq struct {
-	XMLName xml.Name    `xml:"copy-config"`
+	XMLName xml.Name    `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
 	Source  interface{} `xml:"source"`
 	Target  interface{} `xml:"target"`
 }
@@ -299,7 +293,7 @@ func (s *Session) CopyConfig(ctx context.Context, source, target interface{}) er
 }
 
 type deleteConfigReq struct {
-	XMLName xml.Name  `xml:"delete-config"`
+	XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 delete-config"`
 	Target  Datastore `xml:"target"`
 }
 
@@ -319,7 +313,7 @@ type lockReq struct {
 
 func (s *Session) Lock(ctx context.Context, target Datastore) error {
 	req := lockReq{
-		XMLName: xml.Name{Local: "lock"},
+		XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "lock"},
 		Target:  target,
 	}
 	var resp OKResp
@@ -329,7 +323,7 @@ func (s *Session) Lock(ctx context.Context, target Datastore) error {
 
 func (s *Session) Unlock(ctx context.Context, target Datastore) error {
 	req := lockReq{
-		XMLName: xml.Name{Local: "unlock"},
+		XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "unlock"},
 		Target:  target,
 	}
 	var resp OKResp
@@ -342,7 +336,7 @@ func (s *Session) Get(ctx context.Context /* filter */) error {
 }
 
 type killSessionReq struct {
-	XMLName   xml.Name `xml:"kill-session"`
+	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 kill-session"`
 	SessionID uint32   `xml:"session-id"`
 }
 
@@ -356,7 +350,7 @@ func (s *Session) KillSession(ctx context.Context, sessionID uint32) error {
 }
 
 type validateReq struct {
-	XMLName xml.Name    `xml:"validate"`
+	XMLName xml.Name    `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 validate"`
 	Source  interface{} `xml:"source"`
 }
 

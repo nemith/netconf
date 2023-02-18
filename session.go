@@ -2,12 +2,12 @@ package netconf
 
 import (
 	"context"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"sync"
 
+	"github.com/nemith/netconf/internal/xml"
 	"github.com/nemith/netconf/transport"
 )
 

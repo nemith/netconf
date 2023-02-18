@@ -3,10 +3,11 @@ package netconf
 import (
 	"bytes"
 	"context"
-	"encoding/xml"
 	"regexp"
 	"strconv"
 	"testing"
+
+	"github.com/nemith/netconf/internal/xml"
 )
 
 func TestUnmarshalOk(t *testing.T) {
@@ -48,7 +49,6 @@ func TestMarshalDatastore(t *testing.T) {
 		{Candidate, "<rpc><target><candidate/></target></rpc>", false},
 		{Datastore("custom-store"), "<rpc><target><custom-store/></target></rpc>", false},
 		{Datastore(""), "", true},
-		{Datastore("<xml-elements>"), "<rpc><target><&lt;xml-elements&gt;/></target></rpc>", true},
 	}
 
 	for _, tc := range tt {
@@ -293,7 +293,7 @@ func TestDeleteConfig(t *testing.T) {
 		{
 			target: Startup,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<delete-config>\S*<target>\S*<startup/>\S*</target>\S*</delete-config>`),
+				regexp.MustCompile(`<delete-config( xmlns="urn:ietf:params:xml:ns:netconf:base:1.0")?>\S*<target>\S*<startup/>\S*</target>\S*</delete-config>`),
 			},
 		},
 	}
@@ -335,7 +335,7 @@ func TestValidateConfig(t *testing.T) {
 			name:   "candidate",
 			source: Candidate,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<validate>\S*<source>\S*<candidate/>\S*</source>\S*</validate>`),
+				regexp.MustCompile(`<validate( xmlns="urn:ietf:params:xml:ns:netconf:base:1.0")?>\S*<source>\S*<candidate/>\S*</source>\S*</validate>`),
 			},
 		},
 		// XXX: test []byte,string
@@ -377,7 +377,7 @@ func TestLock(t *testing.T) {
 		{
 			target: Candidate,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<lock>\S*<target>\S*<candidate/>\S*</target>\S*</lock>`),
+				regexp.MustCompile(`<lock( xmlns="urn:ietf:params:xml:ns:netconf:base:1.0")?>\S*<target>\S*<candidate/>\S*</target>\S*</lock>`),
 			},
 		},
 	}
@@ -417,7 +417,7 @@ func TestUnlock(t *testing.T) {
 		{
 			target: Candidate,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<unlock>\S*<target>\S*<candidate/>\S*</target>\S*</unlock>`),
+				regexp.MustCompile(`<unlock( xmlns="urn:ietf:params:xml:ns:netconf:base:1.0")?>\S*<target>\S*<candidate/>\S*</target>\S*</unlock>`),
 			},
 		},
 	}
@@ -457,7 +457,7 @@ func TestKillSession(t *testing.T) {
 		{
 			id: 42,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<kill-session>\S*<session-id>42</session-id>\S*</kill-session>`),
+				regexp.MustCompile(`<kill-session( xmlns="urn:ietf:params:xml:ns:netconf:base:1.0")?>\S*<session-id>42</session-id>\S*</kill-session>`),
 			},
 		},
 	}

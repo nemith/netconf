@@ -320,7 +320,7 @@ func (s *Session) Close(ctx context.Context) error {
 	s.mu.Unlock()
 
 	type closeSession struct {
-		XMLName xml.Name `xml:"close-session"`
+		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 close-session"`
 	}
 
 	// This may fail so save the error but still close the underlying transport.

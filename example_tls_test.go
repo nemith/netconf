@@ -67,7 +67,7 @@ func Example_tls() {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cfg, err := session.GetConfig(ctx, "running")
+	cfg, err := session.GetConfig(ctx, "running", "")
 	if err != nil {
 		panic(err)
 	}

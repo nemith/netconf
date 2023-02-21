@@ -37,7 +37,7 @@ func Example_ssh() {
 	// timeout for the call itself.
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	deviceConfig, err := session.GetConfig(ctx, "running")
+	deviceConfig, err := session.GetConfig(ctx, "running", "")
 	if err != nil {
 		log.Fatalf("failed to get config: %v", err)
 	}

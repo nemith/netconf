@@ -78,7 +78,7 @@ func TestGetConfig(t *testing.T) {
 
 	ts.queueRespString("<rpc-reply xmlns='urn:ietf:params:xml:ns:netconf:base:1.0' message-id='1'><data>foo</data></rpc-reply>")
 
-	got, err := sess.GetConfig(context.Background(), Running)
+	got, err := sess.GetConfig(context.Background(), Running, "")
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}

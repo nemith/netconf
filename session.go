@@ -3,6 +3,7 @@ package netconf
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -298,6 +299,14 @@ func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) er
 
 	reply, err := s.Do(ctx, msg)
 	if err != nil {
+		return err
+	}
+
+	if len(reply.Errors) > 0 {
+		err := errors.New("rpc call returned errors")
+		for _, v := range reply.Errors {
+			err = errors.Join(err, fmt.Errorf("type: %s, tag: %s, appTag: %s, path: %s, message: %s", v.Type, v.Tag, v.AppTag, v.Path, v.Message))
+		}
 		return err
 	}
 

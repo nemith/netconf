@@ -102,10 +102,24 @@ const (
 	Startup Datastore = "startup" //
 )
 
+// <filter type="subtree">
+//     <configuration>
+
+type configuration struct {
+	XMLName    xml.Name    `xml:"configuration"`
+	RealFilter interface{} `xml:",innerxml"`
+}
+
+type configFilter struct {
+	XMLName       xml.Name      `xml:"filter"`
+	Type          string        `xml:"type,attr"`
+	Configuration configuration `xml:"configuration"`
+}
+
 type getConfigReq struct {
-	XMLName xml.Name  `xml:"get-config"`
-	Source  Datastore `xml:"source"`
-	// Filter
+	XMLName xml.Name     `xml:"get-config"`
+	Source  Datastore    `xml:"source"`
+	Filter  configFilter `xml:"filter,omitempty"`
 }
 
 type getConfigResp struct {
@@ -117,10 +131,24 @@ type getConfigResp struct {
 // `source` is the datastore to query.
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
-func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, error) {
+func (s *Session) GetConfig(ctx context.Context, source Datastore, filter string) ([]byte, error) {
 	req := getConfigReq{
 		Source: source,
 	}
+
+	// Process filter, if any
+	if filter != "" {
+		f, err := parseFilter(filter)
+		if err != nil {
+			return nil, err
+		}
+		// subtree support is mandatory everywhere,
+		// however some devices might as well support xpath.
+		// that's not handled here
+		req.Filter.Type = "subtree"
+		req.Filter.Configuration.RealFilter = f
+	}
+
 	var resp getConfigResp
 
 	if err := s.Call(ctx, &req, &resp); err != nil {
@@ -128,6 +156,81 @@ func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, erro
 	}
 
 	return resp.Config, nil
+}
+
+func parseFilter(filter string) (interface{}, error) {
+	escapedFilter, err := escapeXML(filter)
+	if err != nil {
+		return nil, err
+	}
+	type basicReq struct {
+		XMLName xml.Name
+	}
+
+	type embedded struct {
+		XMLName xml.Name
+		Inner   interface{} `xml:",innerxml"`
+	}
+
+	// We need to split input string by /
+	// to satisfy the filter xpath-like format "system/services/netconf"
+	// Also leaf node might be a k/v pair, indicating a selector
+	var decomposed []string
+	withSelector := false
+	if strings.Contains(escapedFilter, "=") {
+		withSelector = true
+		tmp := strings.Split(escapedFilter, "=")
+		decomposed = strings.Split(tmp[0], "/")
+		last := len(decomposed) - 1
+		decomposed[last] = decomposed[last] + "=" + tmp[1]
+	} else {
+		decomposed = strings.Split(escapedFilter, "/")
+	}
+	max := len(decomposed) - 1
+	var r interface{}
+	for i := max; i >= 0; i-- {
+		// trailing "/" will produce empty element, skip it
+		if decomposed[i] == "" {
+			continue
+		}
+		store := r
+		if i == max {
+			// if we want to filter by specific key=value, it must be the last one!
+			// if strings.Contains(decomposed[i], "=") {
+			if withSelector {
+				arr := strings.Split(decomposed[i], "=")
+				r = embedded{
+					XMLName: xml.Name{Local: arr[0]},
+					Inner:   arr[1],
+				}
+			} else {
+				// last element
+				r = basicReq{
+					XMLName: xml.Name{Local: decomposed[i]},
+				}
+			}
+			continue
+		}
+		if i == 0 {
+			// top element
+			r = embedded{
+				XMLName: xml.Name{Local: decomposed[i]},
+				Inner:   store,
+			}
+		} else {
+			// middle element
+			r = embedded{
+				XMLName: xml.Name{Local: decomposed[i]},
+				Inner:   store,
+			}
+		}
+	}
+
+	res, err := xml.Marshal(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed marshaling filter to xml, %w", err)
+	}
+	return res, nil
 }
 
 // MergeStrategy defines the strategies for merging configuration in a

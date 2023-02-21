@@ -59,7 +59,7 @@
 				
 				<option value="file1">github.com/nemith/netconf/msg.go (0.0%)</option>
 				
-				<option value="file2">github.com/nemith/netconf/ops.go (91.4%)</option>
+				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
 				
 				<option value="file3">github.com/nemith/netconf/session.go (56.6%)</option>
 				
@@ -240,11 +240,26 @@ import (
         "encoding/xml"
         "fmt"
         "strings"
+        "time"
 )
 
-type OK bool
+type ExtantBool bool
 
-func (b *OK) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+        if !b </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        // This produces a empty start/end tag (i.e &lt;tag&gt;&lt;/tag&gt;) vs a self-closing
+        // tag (&lt;tag/&gt;() which should be the same in XML, however I know certain
+        // vendors may have issues with this format. We may have to process this
+        // after xml encoding.
+        //
+        // See https://github.com/golang/go/issues/21399
+        // or https://github.com/golang/go/issues/26756 for a different hack.
+        <span class="cov8" title="1">return e.EncodeElement(struct{}{}, start)</span>
+}
+
+func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov8" title="1">{
         v := &amp;struct{}{}
         if err := d.DecodeElement(v, &amp;start); err != nil </span><span class="cov0" title="0">{
                 return err
@@ -254,7 +269,7 @@ func (b *OK) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span cl
 }
 
 type OKResp struct {
-        OK OK `xml:"ok"`
+        OK ExtantBool `xml:"ok"`
 }
 
 type Datastore string
@@ -265,7 +280,8 @@ func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <spa
         }</span>
 
         // XXX: it would be nice to actually just block names with crap in them
-        // instead of escaping them, but we need to find a list of what is allowed.
+        // instead of escaping them, but we need to find a list of what is allowed
+        // in an xml tag.
         <span class="cov8" title="1">escaped, err := escapeXML(string(s))
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("invalid string element: %w", err)
@@ -603,6 +619,102 @@ func (s *Session) Validate(ctx context.Context, source interface{}) error <span 
         var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
+
+type commitReq struct {
+        XMLName        xml.Name   `xml:"commit"`
+        Confirmed      ExtantBool `xml:"confirmed,omitempty"`
+        ConfirmTimeout int64      `xml:"confirm-timeout,omitempty"`
+        Persist        string     `xml:"persist,omitempty"`
+        PersistID      string     `xml:"persist-id,omitempty"`
+}
+
+// CommitOption is a optional arguments to [Session.Commit] method
+type CommitOption interface {
+        apply(*commitReq)
+}
+
+type confirmed bool
+type confirmedTimeout struct {
+        time.Duration
+}
+type persist string
+type persistID string
+
+func (o confirmed) apply(req *commitReq) <span class="cov8" title="1">{ req.Confirmed = true }</span>
+func (o confirmedTimeout) apply(req *commitReq) <span class="cov8" title="1">{
+        req.Confirmed = true
+        req.ConfirmTimeout = int64(o.Seconds())
+}</span>
+func (o persist) apply(req *commitReq) <span class="cov8" title="1">{
+        req.Confirmed = true
+        req.Persist = string(o)
+}</span>
+func (o persistID) apply(req *commitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+
+// RollbackOnError will restore the configuration back to before the
+// `&lt;edit-config&gt;` operation took place.  This requires the device to
+// support the `:rollback-on-error` capabilitiy.
+
+// WithConfirmed will mark the commits as requiring confimation or will rollback
+// after the default timeout on the device (detault should be 600s).  The commit
+// can be confirmed with another `&lt;commit&gt;` call without the confirmed option,
+// extended by calling with `Commit` With `WithConfirmed` or
+// `WithConfirmedTimeout` or canceling the commit with a `CommitCancel` call.
+// This requires the device to support the `:confirmed-commit:1.1` capability.
+func WithConfirmed() CommitOption <span class="cov8" title="1">{ return confirmed(true) }</span>
+
+// WithConfirmedTimeout is like `WithConfirmed` but using the given timeout
+// duration instead of the device's default.
+func WithConfirmedTimeout(timeout time.Duration) CommitOption <span class="cov8" title="1">{ return confirmedTimeout{timeout} }</span>
+
+// WithPersist allows you to set a identifier to confirm a commit in another
+// sessions.  Confirming the commit requires setting the `WithPersistID` in the
+// following `Commit` call matching the id set on the confirmed commit.  Will
+// mark the commit as confirmed if not already set.
+func WithPersist(id string) CommitOption <span class="cov8" title="1">{ return persist(id) }</span>
+
+// WithPersistID is used to confirm a previous commit set with a given
+// identifier.  This allows you to confirm a commit from (potentially) another
+// sesssion.
+func WithPersistID(id string) persistID <span class="cov8" title="1">{ return persistID(id) }</span>
+
+// Commit will commit a canidate config to the running comming. This requires
+// the device to support the `:canidate` capability.
+func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error <span class="cov8" title="1">{
+        var req commitReq
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt.apply(&amp;req)
+        }</span>
+
+        <span class="cov8" title="1">if req.PersistID != "" &amp;&amp; req.Confirmed </span><span class="cov0" title="0">{
+                return fmt.Errorf("PersistID cannot be used with Confirmed/ConfirmedTimeout or Persist options")
+        }</span>
+
+        <span class="cov8" title="1">var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)</span>
+}
+
+// CancelCommitOption is a optional arguments to [Session.CancelCommit] method
+type CancelCommitOption interface {
+        applyCancelCommit(*cancelCommitReq)
+}
+
+func (o persistID) applyCancelCommit(req *cancelCommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+
+type cancelCommitReq struct {
+        XMLName   xml.Name `xml:"cancel-commit"`
+        PersistID string   `xml:"persist-id,omitempty"`
+}
+
+func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) error <span class="cov8" title="1">{
+        var req cancelCommitReq
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt.applyCancelCommit(&amp;req)
+        }</span>
+
+        <span class="cov8" title="1">var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)</span>
+}
 </pre>
 		
 		<pre class="file" id="file3" style="display: none">package netconf

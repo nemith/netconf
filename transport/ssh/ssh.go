@@ -46,6 +46,16 @@ func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
 	return newTransport(client, true)
 }
 
+// DialWithConn is same as Dial but creates the transport on top of input net.Conn
+func DialWithConn(addr string, config *ssh.ClientConfig, conn net.Conn) (*Transport, error) {
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		return nil, err
+	}
+	client := ssh.NewClient(sshConn, chans, reqs)
+	return newTransport(client, true)
+}
+
 // NewTransport will create a new ssh transport as defined in RFC6242 for use
 // with netconf.  Unlike Dial, the underlying client will not be automatically
 // closed when the transport is closed (however any sessions and subsystems
@@ -84,8 +94,8 @@ func newTransport(client *ssh.Client, owned bool) (*Transport, error) {
 	}, nil
 }
 
-// Close will close the underlying transport.  If the connection was created
-// with Dial then then underlying ssh.Client is closed as well.  If not only
+// Close will close the underlying transport. If the connection was created
+// with Dial then underlying ssh.Client is closed as well.  If not only
 // the sessions is closed.
 func (t *Transport) Close() error {
 	if err := t.sess.Close(); err != nil {

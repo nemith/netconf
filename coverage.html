@@ -86,7 +86,7 @@ const (
         stdCapPrefix = "urn:ietf:params:netconf:capability"
 )
 
-// DefaultCapabilties are the capabilties sent by the client during the hello
+// DefaultCapabilities are the capabilities sent by the client during the hello
 // exchange by the server.
 var DefaultCapabilities = []string{
         "urn:ietf:params:netconf:base:1.0",
@@ -122,7 +122,7 @@ func ExpandCapability(s string) string <span class="cov8" title="1">{
         <span class="cov0" title="0">return stdCapPrefix + s</span>
 }
 
-// XXX: may want to expose this type publically in the future when the api has
+// XXX: may want to expose this type publicly in the future when the api has
 // stabilized?
 type capabilitySet struct {
         caps map[string]struct{}
@@ -188,7 +188,7 @@ type RPCReplyMsg struct {
 
         // Ok is part of RFC6241 and is present if no data is returned from an
         // RPC call and there were no errors.  This IS NOT set to true if data is
-        // also returned.  To check if a call is ok then look ath the RPCErrors
+        // also returned.  To check if a call is ok then look at the Errors field
 
         Errors []RPCError `xml:"rpc-error,omitempty"`
         Data   []byte     `xml:",innerxml"`
@@ -329,7 +329,7 @@ const (
         Running Datastore = "running"
 
         // Candidate configuration configuration datastore.  Supported with the
-        // `:canidate` capability defined in RFC6241 section 8.3
+        // `:candidate` capability defined in RFC6241 section 8.3
         Candidate Datastore = "candidate"
 
         // Startup configuration configuration datastore.  Supported with the
@@ -348,7 +348,7 @@ type getConfigResp struct {
         Config  []byte   `xml:",innerxml"`
 }
 
-// GetConfig implments the &lt;get-config&gt; rpc operation defined in [RFC6241 7.1].
+// GetConfig implements the &lt;get-config&gt; rpc operation defined in [RFC6241 7.1].
 // `source` is the datastore to query.
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
@@ -381,31 +381,31 @@ const (
 
         // ReplaceConfig defines that the incoming config change should replace the
         // existing config at the level which it is specified.  This can be
-        // specified on indivual config elements or set as the default strategy set
+        // specified on individual config elements or set as the default strategy set
         // with [WithDefaultMergeStrategy] option.
         ReplaceConfig MergeStrategy = "replace"
 
-        // NoMergeStategy is only used as a default strategy defined in
-        // [WithDefaultMergeStragegy].  Elements must specific one of the other
-        // stragegies with the `operation` Attribute on elements in the `&lt;config&gt;`
+        // NoMergeStrategy is only used as a default strategy defined in
+        // [WithDefaultMergeStrategy].  Elements must specific one of the other
+        // strategies with the `operation` Attribute on elements in the `&lt;config&gt;`
         // subtree.  Elements without the `operation` attribute are ignored.
-        NoMergeStragegy MergeStrategy = "none"
+        NoMergeStrategy MergeStrategy = "none"
 
         // CreateConfig allows a subtree element to be created only if it doesn't
         // already exist.
         // This strategy is only used as the `operation` attribute of
-        // a `&lt;config&gt;` element and cannot be used as the defaul strategy.
+        // a `&lt;config&gt;` element and cannot be used as the default strategy.
         CreateConfig MergeStrategy = "create"
 
         // DeleteConfig will completely delete subtree from the config only if it
         // already exists.  This strategy is only used as the `operation` attribute
-        // of a `&lt;config&gt;` element and cannot be used as the defaul strategy.
+        // of a `&lt;config&gt;` element and cannot be used as the default strategy.
         DeleteConfig MergeStrategy = "delete"
 
-        // Removeonfig will remove subtree from the config.  If the subtree doesn't
-        // exist in the datastore then it is siliently skipped.  This strategy is
+        // RemoveConfig will remove subtree from the config.  If the subtree doesn't
+        // exist in the datastore then it is silently skipped.  This strategy is
         // only used as the `operation` attribute of a `&lt;config&gt;` element and cannot
-        // be used as the defaul strategy.
+        // be used as the default strategy.
         RemoveConfig MergeStrategy = "remove"
 )
 
@@ -423,7 +423,7 @@ const (
         // SetOnly will not do any testing before applying it.
         SetOnly TestStrategy = "set"
 
-        // Test only will validation the incoming configiration and return the
+        // Test only will validation the incoming configuration and return the
         // results without modifying the underlying store.
         TestOnly TestStrategy = "test-only"
 )
@@ -438,7 +438,7 @@ const (
         // StopOnError will about the `&lt;edit-config&gt;` operation on the first error.
         StopOnError ErrorStrategy = "stop-on-error"
 
-        // ContinueOnError will continue to parse the configiration data even if an
+        // ContinueOnError will continue to parse the configuration data even if an
         // error is encountered.  Errors are still recorded and reported in the
         // reply.
         ContinueOnError ErrorStrategy = "continue-on-error"
@@ -460,14 +460,14 @@ func (o testStrategy) apply(req *editConfigReq)         <span class="cov8" title
 func (o errorStrategy) apply(req *editConfigReq)        <span class="cov8" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
 
 // WithDefaultMergeStrategy sets the default config merging strategy for the
-// &lt;edit-config&gt; operation.  Only [Merge], [Replace], and [None] are suppored
+// &lt;edit-config&gt; operation.  Only [Merge], [Replace], and [None] are supported
 // (the rest of the strategies are for defining as attributed in individual
 // elements inside the `&lt;config&gt;` subtree).
 func WithDefaultMergeStrategy(op MergeStrategy) EditConfigOption <span class="cov8" title="1">{ return defaultMergeStrategy(op) }</span>
 
 // WithTestStrategy sets the `test-option` in the `&lt;edit-config&gt;“ operation.
 // This defines what testing should be done the supplied configuration.  See the
-// documenation on [TestStrategy] for details on each strategy.
+// documentation on [TestStrategy] for details on each strategy.
 func WithTestStrategy(op TestStrategy) EditConfigOption <span class="cov8" title="1">{ return testStrategy(op) }</span>
 
 // WithErrorStrategy sets the `error-option` in the `&lt;edit-config&gt;` operation.
@@ -653,10 +653,10 @@ func (o persistID) apply(req *commitReq) <span class="cov8" title="1">{ req.Pers
 
 // RollbackOnError will restore the configuration back to before the
 // `&lt;edit-config&gt;` operation took place.  This requires the device to
-// support the `:rollback-on-error` capabilitiy.
+// support the `:rollback-on-error` capability.
 
-// WithConfirmed will mark the commits as requiring confimation or will rollback
-// after the default timeout on the device (detault should be 600s).  The commit
+// WithConfirmed will mark the commits as requiring confirmation or will rollback
+// after the default timeout on the device (default should be 600s).  The commit
 // can be confirmed with another `&lt;commit&gt;` call without the confirmed option,
 // extended by calling with `Commit` With `WithConfirmed` or
 // `WithConfirmedTimeout` or canceling the commit with a `CommitCancel` call.
@@ -782,12 +782,12 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
 }
 
 // Open will create a new Session with th=e given transport and open it with the
-// nessesary hello messages.
+// necessary hello messages.
 func Open(transport transport.Transport, opts ...SessionOption) (*Session, error) <span class="cov0" title="0">{
         s := newSession(transport, opts...)
 
         // this needs a timeout of some sort.
-        if err := s.hello(); err != nil </span><span class="cov0" title="0">{
+        if err := s.handshake(); err != nil </span><span class="cov0" title="0">{
                 s.tr.Close()
                 return nil, err
         }</span>
@@ -796,8 +796,8 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
         return s, nil</span>
 }
 
-// hello exchanges hello messages and reports if there are any errors.
-func (s *Session) hello() error <span class="cov8" title="1">{
+// handshake exchanges handshake messages and reports if there are any errors.
+func (s *Session) handshake() error <span class="cov8" title="1">{
         clientMsg := HelloMsg{
                 Capabilities: s.clientCaps.All(),
         }
@@ -844,12 +844,12 @@ func (s *Session) SessionID() uint64 <span class="cov8" title="1">{
         return s.sessionID
 }</span>
 
-// ClientCapabilties will return the capabilities initialized with the session.
+// ClientCapabilities will return the capabilities initialized with the session.
 func (s *Session) ClientCapabilities() []string <span class="cov0" title="0">{
         return s.clientCaps.All()
 }</span>
 
-// ServcerCapabilties will return the capabilities returned by the server in
+// ServerCapabilities will return the capabilities returned by the server in
 // it's hello message.
 func (s *Session) ServerCapabilities() []string <span class="cov0" title="0">{
         return s.serverCaps.All()
@@ -1008,8 +1008,8 @@ func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <sp
         }
 }
 
-// Call issues a rpc call for the given NETCONF operation and unmashaling the
-// respose into `resp`.
+// Call issues a rpc call for the given NETCONF operation and unmarshaling the
+// response into `resp`.
 func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) error <span class="cov8" title="1">{
         msg := &amp;RPCMsg{
                 Operation: op,
@@ -1071,7 +1071,7 @@ import (
 )
 
 // ErrMalformedChunk represents a message that invalid as defined in the chunk
-// framking in RFC6242
+// framing in RFC6242
 var ErrMalformedChunk = errors.New("netconf: invalid chunk")
 
 type frameReader interface {
@@ -1147,7 +1147,7 @@ func NewFramer(r io.Reader, w io.Writer) *Framer <span class="cov0" title="0">{
 //
 // This needs to be called before `MsgReader` or `MsgWriter`.
 func (f *Framer) DebugCapture(in io.Writer, out io.Writer) <span class="cov0" title="0">{
-        // XXX: should there be a sentinal flag to indicate write/read has been done already?
+        // XXX: should there be a sentinel flag to indicate write/read has been done already?
         if f.curReader != nil ||
                 f.curWriter != nil ||
                 f.bw.Buffered() &gt; 0 ||
@@ -1170,7 +1170,7 @@ func (f *Framer) DebugCapture(in io.Writer, out io.Writer) <span class="cov0" ti
 // Chunked framing.  This is usually called after netconf exchanged the hello
 // messages.
 func (t *Framer) Upgrade() <span class="cov0" title="0">{
-        // XXX: do we need to protect against race conditions (atomic/mutux?)
+        // XXX: do we need to protect against race conditions (atomic/mutex?)
         t.upgraded = true
 }</span>
 
@@ -1178,7 +1178,7 @@ func (t *Framer) Upgrade() <span class="cov0" title="0">{
 // message.
 //
 // Only one reader can be used at a time.  When this is called with an existing
-// reader then the underlying reader is avanced to the start of the next message
+// reader then the underlying reader is advanced to the start of the next message
 // and invalidates the old reader before returning a new one.
 func (t *Framer) MsgReader() (io.Reader, error) <span class="cov0" title="0">{
         if t.curReader != nil </span><span class="cov0" title="0">{
@@ -1257,7 +1257,7 @@ func (r *chunkReader) readHeader() error <span class="cov8" title="1">{
                 return err
         }</span>
 
-        // make sure the preable of `\n#` which is used for both the start of a
+        // make sure the preamble of `\n#` which is used for both the start of a
         // chuck and the end-of-chunk marker is valid.
         <span class="cov8" title="1">if peeked[0] != '\n' || peeked[1] != '#' </span><span class="cov8" title="1">{
                 return ErrMalformedChunk
@@ -1491,7 +1491,7 @@ type Transport struct {
 }
 
 // Dial will connect to a ssh server and issues a transport, it's used as a
-// convience function as essnetial is the same as
+// convenience function as essentially is the same as
 //
 //                c, err := ssh.Dial(network, addr, config)
 //                 if err != nil { /* ... handle error ... */ }

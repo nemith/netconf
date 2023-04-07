@@ -61,7 +61,7 @@
 				
 				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (56.6%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (56.9%)</option>
 				
 				<option value="file4">github.com/nemith/netconf/transport/frame.go (49.0%)</option>
 				
@@ -164,6 +164,8 @@ func (cs capabilitySet) All() []string <span class="cov8" title="1">{
 
 import (
         "encoding/xml"
+        "fmt"
+        "strings"
         "time"
 )
 
@@ -190,8 +192,8 @@ type RPCReplyMsg struct {
         // RPC call and there were no errors.  This IS NOT set to true if data is
         // also returned.  To check if a call is ok then look at the Errors field
 
-        Errors []RPCError `xml:"rpc-error,omitempty"`
-        Data   []byte     `xml:",innerxml"`
+        Errors RPCErrors `xml:"rpc-error,omitempty"`
+        Data   []byte    `xml:",innerxml"`
 }
 
 type NotificationMsg struct {
@@ -229,8 +231,29 @@ type RPCError struct {
 }
 
 func (e RPCError) Error() string <span class="cov0" title="0">{
-        return e.Message
+        return fmt.Sprintf("rpc error: %s", e.Message)
 }</span>
+
+type RPCErrors []RPCError
+
+func (errs RPCErrors) Error() string <span class="cov0" title="0">{
+        var sb strings.Builder
+        for i, err := range errs </span><span class="cov0" title="0">{
+                if i &gt; 0 </span><span class="cov0" title="0">{
+                        sb.WriteRune('\n')
+                }</span>
+                <span class="cov0" title="0">sb.WriteString(err.Error())</span>
+        }
+        <span class="cov0" title="0">return sb.String()</span>
+}
+
+func (errs RPCErrors) Unwrap() []error <span class="cov0" title="0">{
+        boxed := make([]error, len(errs))
+        for i, err := range errs </span><span class="cov0" title="0">{
+                boxed[i] = err
+        }</span>
+        <span class="cov0" title="0">return boxed</span>
+}
 </pre>
 		
 		<pre class="file" id="file2" style="display: none">package netconf
@@ -1021,14 +1044,15 @@ func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) er
         }</span>
 
         <span class="cov8" title="1">if resp != nil </span><span class="cov8" title="1">{
-                if err := xml.Unmarshal(reply.Data, resp); err != nil </span><span class="cov0" title="0">{
-                        return fmt.Errorf("failed to decode response: %w", err)
-                }</span>
-        }
+                err = xml.Unmarshal(reply.Data, resp)
+        }</span>
 
-        // XXX: Need to handle RPC errors here.
+        // if we have RPC errors return them
+        <span class="cov8" title="1">if reply.Errors != nil </span><span class="cov0" title="0">{
+                err = reply.Errors
+        }</span>
 
-        <span class="cov8" title="1">return nil</span>
+        <span class="cov8" title="1">return err</span>
 }
 
 // Close will gracefully close the sessions first by sending a `close-session`

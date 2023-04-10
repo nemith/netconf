@@ -5,8 +5,10 @@ package inttest
 
 import (
 	"context"
+	"encoding/xml"
 	"net"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/nemith/netconf"
@@ -15,7 +17,19 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+func onlyFlavor(t *testing.T, flavors ...string) {
+	t.Helper()
+	for _, flavor := range flavors {
+		if os.Getenv("NETCONF_DUT_FLAVOR") == flavor {
+			return
+		}
+	}
+	t.Skipf("test only for flavors '%s'.  Skipping", strings.Join(flavors, ","))
+}
+
 func sshAuth(t *testing.T) ssh.AuthMethod {
+	t.Helper()
+
 	switch {
 	case os.Getenv("NETCONF_DUT_SSHPASS") != "":
 		return ssh.Password(os.Getenv("NETCONF_DUT_SSHPASS"))
@@ -116,4 +130,25 @@ func TestBadGetConfig(t *testing.T) {
 	var rpcErrors netconf.RPCErrors
 	assert.ErrorAs(t, err, &rpcErrors)
 	assert.Len(t, rpcErrors, 1)
+}
+
+func TestJunosCommand(t *testing.T) {
+	onlyFlavor(t, "junos")
+	session := setupSSH(t)
+
+	cmd := struct {
+		Command string `xml:"command"`
+	}{
+		Command: "show version",
+	}
+
+	b, err := xml.Marshal(&cmd)
+	if err != nil {
+		panic(err)
+	}
+	panic(b)
+
+	ctx := context.Background()
+	err = session.Call(ctx, &cmd, nil)
+	assert.NoError(t, err)
 }

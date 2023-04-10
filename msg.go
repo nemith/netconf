@@ -21,6 +21,29 @@ type RPCMsg struct {
 	Operation interface{} `xml:",innerxml"`
 }
 
+func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if msg.Operation == nil {
+		return fmt.Errorf("operation cannot be nil")
+	}
+
+	// alias the type to not cause recursion calling e.Encode
+	type rpcMsg RPCMsg
+	inner := rpcMsg(*msg)
+
+	switch msg.Operation.(type) {
+	case string, []byte:
+		break
+	default:
+		var err error
+		inner.Operation, err = xml.Marshal(&msg.Operation)
+		if err != nil {
+			return err
+		}
+	}
+
+	return e.Encode(&inner)
+}
+
 // RPCReplyMsg maps the xml value of <rpc-reply> in RFC6241
 type RPCReplyMsg struct {
 	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`

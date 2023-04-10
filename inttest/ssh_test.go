@@ -143,13 +143,7 @@ func TestJunosCommand(t *testing.T) {
 		Command: "show version",
 	}
 
-	b, err := xml.Marshal(&cmd)
-	if err != nil {
-		panic(err)
-	}
-	panic(b)
-
 	ctx := context.Background()
-	err = session.Call(ctx, &cmd, nil)
+	err := session.Call(ctx, &cmd, nil)
 	assert.NoError(t, err)
 }

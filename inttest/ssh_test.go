@@ -137,7 +137,8 @@ func TestJunosCommand(t *testing.T) {
 	session := setupSSH(t)
 
 	cmd := struct {
-		Command string `xml:"command"`
+		XMLName xml.Name `xml:"command"`
+		Command string   `xml:",innerxml"`
 	}{
 		Command: "show version",
 	}

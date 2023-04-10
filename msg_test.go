@@ -35,7 +35,7 @@ func TestMarshalRPCMsg(t *testing.T) {
 			want:      []byte(`<rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><validate><source><running/></source></validate></rpc>`),
 		},
 		{
-			name: "customStruct",
+			name: "namedStruct",
 			operation: struct {
 				XMLName xml.Name `xml:"http://xml.juniper.net/junos/22.4R0/junos command"`
 				Command string   `xml:",innerxml"`
@@ -44,6 +44,15 @@ func TestMarshalRPCMsg(t *testing.T) {
 			},
 			want: []byte(`<rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><command xmlns="http://xml.juniper.net/junos/22.4R0/junos">show bgp neighbors</command></rpc>`),
 		},
+		/*
+			{
+				name: "unnamedStruct",
+				operation: struct {
+					Command string `xml:"command"`
+				}{
+					Command: "show version",
+				},
+			},*/
 	}
 
 	for _, tc := range tt {

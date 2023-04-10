@@ -26,21 +26,11 @@ func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 		return fmt.Errorf("operation cannot be nil")
 	}
 
+	// TODO: validate operation is named?
+
 	// alias the type to not cause recursion calling e.Encode
 	type rpcMsg RPCMsg
 	inner := rpcMsg(*msg)
-
-	switch msg.Operation.(type) {
-	case string, []byte:
-		break
-	default:
-		var err error
-		inner.Operation, err = xml.Marshal(&msg.Operation)
-		if err != nil {
-			return err
-		}
-	}
-
 	return e.Encode(&inner)
 }
 

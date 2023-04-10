@@ -57,7 +57,7 @@
 				
 				<option value="file0">github.com/nemith/netconf/capability.go (83.3%)</option>
 				
-				<option value="file1">github.com/nemith/netconf/msg.go (0.0%)</option>
+				<option value="file1">github.com/nemith/netconf/msg.go (31.2%)</option>
 				
 				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
 				
@@ -181,6 +181,19 @@ type RPCMsg struct {
         XMLName   xml.Name    `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
         MessageID uint64      `xml:"message-id,attr"`
         Operation interface{} `xml:",innerxml"`
+}
+
+func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+        if msg.Operation == nil </span><span class="cov8" title="1">{
+                return fmt.Errorf("operation cannot be nil")
+        }</span>
+
+        // TODO: validate operation is named?
+
+        // alias the type to not cause recursion calling e.Encode
+        <span class="cov8" title="1">type rpcMsg RPCMsg
+        inner := rpcMsg(*msg)
+        return e.Encode(&amp;inner)</span>
 }
 
 // RPCReplyMsg maps the xml value of &lt;rpc-reply&gt; in RFC6241

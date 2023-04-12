@@ -9,26 +9,36 @@ import (
 )
 
 func main() {
-	config := &ssh.ClientConfig{
-		User: "admin",
-		Auth: []ssh.AuthMethod{
-			ssh.Password("secret"),
+	chc := &netconf.CallHomeClient{
+		Transport: &netconf.SSHCallHomeTransport{
+			Config: &ssh.ClientConfig{
+				User: "test",
+				Auth: []ssh.AuthMethod{
+					ssh.Password("test"),
+				},
+				// as specified in rfc8071 3.1 C5 netconf client must validate host keys
+				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			},
 		},
-		// as specified in rfc8071 3.1 C5 netconf client must validate host keys
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Address: "192.168.121.230",
 	}
 
-	addr := "0.0.0.0:4334"
-	ch, err := netconf.NewCallHome(netconf.WithConfigSSH(config), netconf.WithAddress(addr))
+	chs, err := netconf.NewCallHomeServer(netconf.WithCallHomeClient(chc), netconf.WithAddress("0.0.0.0:4339"))
 	if err != nil {
 		panic(err)
 	}
-	log.Printf("callhome server listening on: %s", addr)
-	err = ch.Listen()
+	log.Printf("callhome server listening on: %s", "0.0.0.0:4339")
+	go func() {
+		err := chs.Listen()
+		if err != nil {
+			panic(err)
+		}
+	}()
+	time.Sleep(10 * time.Second)
+	session, err := chs.ClientSession("192.168.121.230")
 	if err != nil {
 		panic(err)
 	}
-	session := ch.Session()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

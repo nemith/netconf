@@ -30,12 +30,6 @@ func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Trans
 
 }
 
-// DialWithConn is same as Dial but creates the transport on top of input net.Conn
-func DialWithConn(config *tls.Config, conn net.Conn) (*Transport, error) {
-	tlsConn := tls.Client(conn, config)
-	return NewTransport(tlsConn), nil
-}
-
 // NewTransport takes an already connected tls transport and returns a new
 // Transport.
 func NewTransport(conn *tls.Conn) *Transport {

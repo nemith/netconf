@@ -61,9 +61,9 @@
 				
 				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (56.0%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (56.9%)</option>
 				
-				<option value="file4">github.com/nemith/netconf/transport/frame.go (49.0%)</option>
+				<option value="file4">github.com/nemith/netconf/transport/frame.go (50.0%)</option>
 				
 				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (67.9%)</option>
 				
@@ -804,10 +804,12 @@ func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) 
 import (
         "context"
         "encoding/xml"
+        "errors"
         "fmt"
         "io"
         "log"
         "sync"
+        "syscall"
 
         "github.com/nemith/netconf/transport"
 )
@@ -891,8 +893,10 @@ func (s *Session) handshake() error <span class="cov8" title="1">{
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
+        // TODO: capture this error some how (ah defer and errors)
+        <span class="cov8" title="1">defer r.Close()
 
-        <span class="cov8" title="1">var serverMsg HelloMsg
+        var serverMsg HelloMsg
         if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov8" title="1">{
                 return fmt.Errorf("failed to read server hello message: %w", err)
         }</span>
@@ -952,54 +956,55 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" 
         }
 }
 
+func (s *Session) recvMsg() error <span class="cov8" title="1">{
+        r, err := s.tr.MsgReader()
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+        <span class="cov8" title="1">defer r.Close()
+        dec := xml.NewDecoder(r)
+
+        root, err := startElement(dec)
+        if err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov8" title="1">const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
+
+        switch root.Name </span>{
+        /* Not supported yet. Will implement post beta release
+        case "notification":
+                var notif NotificationMsg
+                if err := dec.DecodeElement(&amp;notif, root); err != nil {
+                        log.Printf("failed to decode notification message: %v", err)
+                }
+        */
+        case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
+                var reply RPCReplyMsg
+                if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
+                        // What should we do here?  Kill the connection?
+                        log.Printf("failed to decode rpc-reply message: %v", err)
+                }</span>
+                <span class="cov8" title="1">ok, ch := s.replyChan(reply.MessageID)
+                if !ok </span><span class="cov0" title="0">{
+                        // XXX: what should we do here?  Kill the connection?
+                        log.Printf("cannot find reply channel for message-id %d", reply.MessageID)
+                }</span>
+                <span class="cov8" title="1">ch &lt;- reply</span>
+        default:<span class="cov0" title="0">
+                // XXX: should we die here?
+                log.Printf("improper xml message type %q", root.Name.Local)</span>
+        }
+        <span class="cov8" title="1">return nil</span>
+}
+
 // recv is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
 func (s *Session) recv() <span class="cov8" title="1">{
-        var (
-                r    io.Reader
-                dec  *xml.Decoder
-                root *xml.StartElement
-                err  error
-        )
-Loop:
+        var err error
         for </span><span class="cov8" title="1">{
-                r, err = s.tr.MsgReader()
-                if err != nil </span><span class="cov0" title="0">{
+                if err = s.recvMsg(); err != nil </span><span class="cov0" title="0">{
                         break</span>
-                }
-                <span class="cov8" title="1">dec = xml.NewDecoder(r)
-
-                root, err = startElement(dec)
-                if err != nil </span><span class="cov0" title="0">{
-                        break</span>
-                }
-
-                <span class="cov8" title="1">const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
-
-                switch root.Name </span>{
-                /* Not supported yet. Will implement post beta release
-                case "notification":
-                        var notif NotificationMsg
-                        if err := dec.DecodeElement(&amp;notif, root); err != nil {
-                                log.Printf("failed to decode notification message: %v", err)
-                        }
-                */
-                case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
-                        var reply RPCReplyMsg
-                        if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
-                                // What should we do here?  Kill the connection?
-                                log.Printf("failed to decode rpc-reply message: %v", err)
-                        }</span>
-                        <span class="cov8" title="1">ok, ch := s.replyChan(reply.MessageID)
-                        if !ok </span><span class="cov0" title="0">{
-                                // XXX: what should we do here?  Kill the connection?
-                                log.Printf("cannot find reply channel for message-id %d", reply.MessageID)
-                                continue Loop</span>
-                        }
-                        <span class="cov8" title="1">ch &lt;- reply</span>
-                default:<span class="cov0" title="0">
-                        // XXX: should we die here?
-                        log.Printf("improper xml message type %q", root.Name.Local)</span>
                 }
         }
         <span class="cov0" title="0">s.mu.Lock()
@@ -1133,9 +1138,14 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
         // This may fail so save the error but still close the underlying transport.
         rpcErr := s.Call(ctx, &amp;closeSession{}, nil)
 
-        if err := s.tr.Close(); err != nil &amp;&amp; err != io.EOF </span><span class="cov0" title="0">{
-                return err
-        }</span>
+        // Close the connection and ignore errors if the remote side hung up first.
+        if err := s.tr.Close(); err != nil &amp;&amp;
+                !errors.Is(err, io.EOF) &amp;&amp;
+                !errors.Is(err, syscall.EPIPE) </span><span class="cov0" title="0">{
+                </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
 
         <span class="cov0" title="0">if rpcErr != io.EOF </span><span class="cov0" title="0">{
                 return rpcErr
@@ -1163,9 +1173,8 @@ import (
 var ErrMalformedChunk = errors.New("netconf: invalid chunk")
 
 type frameReader interface {
-        io.Reader
+        io.ReadCloser
         io.ByteReader
-        advance() error
 }
 
 type frameWriter interface {
@@ -1268,14 +1277,8 @@ func (t *Framer) Upgrade() <span class="cov0" title="0">{
 // Only one reader can be used at a time.  When this is called with an existing
 // reader then the underlying reader is advanced to the start of the next message
 // and invalidates the old reader before returning a new one.
-func (t *Framer) MsgReader() (io.Reader, error) <span class="cov0" title="0">{
-        if t.curReader != nil </span><span class="cov0" title="0">{
-                if err := t.curReader.advance(); err != nil </span><span class="cov0" title="0">{
-                        return nil, err
-                }</span>
-        }
-
-        <span class="cov0" title="0">if t.upgraded </span><span class="cov0" title="0">{
+func (t *Framer) MsgReader() (io.ReadCloser, error) <span class="cov0" title="0">{
+        if t.upgraded </span><span class="cov0" title="0">{
                 t.curReader = &amp;chunkReader{r: t.br}
         }</span> else<span class="cov0" title="0"> {
                 t.curReader = &amp;eomReader{r: t.br}
@@ -1306,28 +1309,6 @@ var endOfChunks = []byte("\n##\n")
 type chunkReader struct {
         r         *bufio.Reader
         chunkLeft int
-}
-
-func (r *chunkReader) advance() error <span class="cov0" title="0">{
-        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
-
-        <span class="cov0" title="0">for </span><span class="cov0" title="0">{
-                if r.chunkLeft &lt;= 0 </span><span class="cov0" title="0">{
-                        err := r.readHeader()
-                        switch err </span>{
-                        case nil:<span class="cov0" title="0">
-                                break</span>
-                        case io.EOF:<span class="cov0" title="0">
-                                return nil</span>
-                        default:<span class="cov0" title="0">
-                                return err</span>
-                        }
-                }
-
-                <span class="cov0" title="0">if _, err := r.r.Discard(r.chunkLeft); err != nil </span><span class="cov0" title="0">{
-                        return err
-                }</span>
-        }
 }
 
 func (r *chunkReader) readHeader() error <span class="cov8" title="1">{
@@ -1423,7 +1404,31 @@ func (r *chunkReader) ReadByte() (byte, error) <span class="cov8" title="1">{
         }</span>
         <span class="cov8" title="1">r.chunkLeft--
         return b, nil</span>
+}
 
+// Close will read the rest of the frame and consume it including
+// the end-of-frame markers if we haven't already done so.
+func (r *chunkReader) Close() error <span class="cov0" title="0">{
+        // poison the reader so that it can no longer be used
+        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+
+        <span class="cov0" title="0">for </span><span class="cov0" title="0">{
+                if r.chunkLeft &lt;= 0 </span><span class="cov0" title="0">{
+                        err := r.readHeader()
+                        switch err </span>{
+                        case nil:<span class="cov0" title="0">
+                                break</span>
+                        case io.EOF:<span class="cov0" title="0">
+                                return nil</span>
+                        default:<span class="cov0" title="0">
+                                return err</span>
+                        }
+                }
+
+                <span class="cov0" title="0">if _, err := r.r.Discard(r.chunkLeft); err != nil </span><span class="cov0" title="0">{
+                        return err
+                }</span>
+        }
 }
 
 type chunkWriter struct {
@@ -1457,20 +1462,6 @@ var endOfMsg = []byte("]]&gt;]]&gt;")
 
 type eomReader struct {
         r *bufio.Reader
-}
-
-func (r *eomReader) advance() error <span class="cov0" title="0">{
-        // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
-
-        <span class="cov0" title="0">var err error
-        for err == nil </span><span class="cov0" title="0">{
-                _, err = r.ReadByte()
-                if err == io.EOF </span><span class="cov0" title="0">{
-                        return nil
-                }</span>
-        }
-        <span class="cov0" title="0">return err</span>
 }
 
 func (r *eomReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
@@ -1521,6 +1512,22 @@ func (r *eomReader) ReadByte() (byte, error) <span class="cov8" title="1">{
         }
 
         <span class="cov8" title="1">return b, nil</span>
+}
+
+// Close will read the rest of the frame and consume it including
+// the end-of-frame marker.
+func (r *eomReader) Close() error <span class="cov0" title="0">{
+        // poison the reader so that it can no longer be used
+        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+
+        <span class="cov0" title="0">var err error
+        for err == nil </span><span class="cov0" title="0">{
+                _, err = r.ReadByte()
+                if err == io.EOF </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+        }
+        <span class="cov0" title="0">return err</span>
 }
 
 type eomWriter struct {

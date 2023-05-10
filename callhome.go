@@ -2,6 +2,7 @@ package netconf
 
 import (
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"github.com/nemith/netconf/transport"
 	ncssh "github.com/nemith/netconf/transport/ssh"
@@ -10,12 +11,14 @@ import (
 	"net"
 )
 
+var ErrNoClientConfig = errors.New("missing transport configuration")
+
 // CallHomeTransport interface allows for upgrading an incoming callhome TCP connection into a transport
 type CallHomeTransport interface {
 	DialWithConn(conn net.Conn) (transport.Transport, error)
 }
 
-// SSHCallHomeTransport implements the CallHomeTransport for SSH
+// SSHCallHomeTransport implements the CallHomeTransport on SSH
 type SSHCallHomeTransport struct {
 	Config *ssh.ClientConfig
 }
@@ -42,22 +45,41 @@ func (t *TLSCallHomeTransport) DialWithConn(conn net.Conn) (transport.Transport,
 }
 
 /*
-CallHomeClient holds connecting callhome device information
+CallHomeClientConfig holds connecting callhome device information
 */
-type CallHomeClient struct {
-	session   *Session
+type CallHomeClientConfig struct {
 	Transport CallHomeTransport
 	Address   string
+}
+
+type CallHomeClient struct {
+	session *Session
+	*CallHomeClientConfig
+}
+
+func (chc *CallHomeClient) Session() *Session {
+	return chc.session
+}
+
+type ClientError struct {
+	Address string
+	Err     error
+}
+
+func (ce *ClientError) Error() string {
+	return fmt.Sprintf("client %s: %s", ce.Address, ce.Err.Error())
 }
 
 /*
 CallHomeServer implements netconf callhome procedure as specified in RFC 8071
 */
 type CallHomeServer struct {
-	listener net.Listener
-	network  string
-	addr     string
-	clients  map[string]*CallHomeClient
+	listener       net.Listener
+	network        string
+	addr           string
+	clientsConfig  map[string]*CallHomeClientConfig
+	clientsChannel chan *CallHomeClient
+	errorChannel   chan *ClientError
 }
 
 type CallHomeOption func(*CallHomeServer)
@@ -76,16 +98,16 @@ func WithNetwork(network string) CallHomeOption {
 	}
 }
 
-// WithCallHomeClient set the netconf callhome clients
-func WithCallHomeClient(chc ...*CallHomeClient) CallHomeOption {
+// WithCallHomeClientConfig set the netconf callhome clientsConfig
+func WithCallHomeClientConfig(chc ...*CallHomeClientConfig) CallHomeOption {
 	return func(chs *CallHomeServer) {
 		for _, c := range chc {
-			chs.clients[c.Address] = c
+			chs.clientsConfig[c.Address] = c
 		}
 	}
 }
 
-// NewCallHomeServer creates a CallHomeServer client
+// NewCallHomeServer creates a CallHomeServer
 func NewCallHomeServer(opts ...CallHomeOption) (*CallHomeServer, error) {
 	const (
 		defaultAddress = "0.0.0.0:4334"
@@ -93,9 +115,11 @@ func NewCallHomeServer(opts ...CallHomeOption) (*CallHomeServer, error) {
 	)
 
 	ch := &CallHomeServer{
-		addr:    defaultAddress,
-		network: defaultNetwork,
-		clients: map[string]*CallHomeClient{},
+		addr:           defaultAddress,
+		network:        defaultNetwork,
+		clientsConfig:  map[string]*CallHomeClientConfig{},
+		clientsChannel: make(chan *CallHomeClient),
+		errorChannel:   make(chan *ClientError),
 	}
 
 	for _, opt := range opts {
@@ -109,7 +133,9 @@ func NewCallHomeServer(opts ...CallHomeOption) (*CallHomeServer, error) {
 	return ch, nil
 }
 
-// Listen waits for incoming callhome connections
+// Listen waits for incoming callhome connections and handles them.
+// Send ClientError messages to the ErrChan whenever a callhome connection to a host fails and
+// send a new CallHomeClient every time a callhome connection is successful
 func (chs *CallHomeServer) Listen() error {
 	ln, err := net.Listen(chs.network, chs.addr)
 	if err != nil {
@@ -125,34 +151,44 @@ func (chs *CallHomeServer) Listen() error {
 			return err
 		}
 		go func() {
-			err := chs.handleConnection(conn)
+			chc, err := chs.handleConnection(conn)
 			if err != nil {
-				fmt.Printf("error handling callhome connection from address: %s, error: %s \n", conn.RemoteAddr(), err)
+				chs.errorChannel <- &ClientError{
+					Address: conn.RemoteAddr().String(),
+					Err:     err,
+				}
+			} else {
+				chs.clientsChannel <- chc
 			}
 		}()
 	}
 }
 
 // handleConnection upgrade input net.Conn to establish a netconf session
-func (chs *CallHomeServer) handleConnection(conn net.Conn) error {
-	fmt.Printf("handling connection from: %s\n", conn.RemoteAddr().String())
+func (chs *CallHomeServer) handleConnection(conn net.Conn) (*CallHomeClient, error) {
 	addr, ok := conn.RemoteAddr().(*net.TCPAddr)
 	if !ok {
-		return fmt.Errorf("callhome only supports tcp")
+		return nil, errors.New("invalid network connection, callhome support tcp only")
 	}
-	chc, ok := chs.clients[addr.IP.String()]
+	chcc, ok := chs.clientsConfig[addr.IP.String()]
 	if !ok {
-		return fmt.Errorf("no client configured for address %s", addr)
+		return nil, ErrNoClientConfig
 	}
 
-	t, err := chc.Transport.DialWithConn(conn)
+	t, err := chcc.Transport.DialWithConn(conn)
+	if err != nil {
+		return nil, err
+	}
 
 	s, err := Open(t)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	chs.clients[addr.IP.String()].session = s
-	return nil
+
+	return &CallHomeClient{
+		session:              s,
+		CallHomeClientConfig: chcc,
+	}, nil
 }
 
 // Close terminates the callhome server connection
@@ -160,14 +196,15 @@ func (chs *CallHomeServer) Close() error {
 	return chs.listener.Close()
 }
 
-// ClientSession returns the netconf session given callhome client IP address
-func (chs *CallHomeServer) ClientSession(clientIP string) (*Session, error) {
-	c, ok := chs.clients[clientIP]
-	if !ok {
-		return nil, fmt.Errorf("no callhome client with IP %s", clientIP)
-	}
-	if c.session == nil {
-		return nil, fmt.Errorf("no active callhome session for client %s", clientIP)
-	}
-	return chs.clients[clientIP].session, nil
+func (chs *CallHomeServer) ErrorChannel() chan *ClientError {
+	return chs.errorChannel
+}
+
+func (chs *CallHomeServer) CallHomeClientChannel() chan *CallHomeClient {
+	return chs.clientsChannel
+}
+
+// SetCallHomeClientConfig adds a new callhome client configuration to the callhome server
+func (chs *CallHomeServer) SetCallHomeClientConfig(chcc *CallHomeClientConfig) {
+	chs.clientsConfig[chcc.Address] = chcc
 }

@@ -2,28 +2,37 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"github.com/nemith/netconf"
 	"golang.org/x/crypto/ssh"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
-	chc := &netconf.CallHomeClient{
-		Transport: &netconf.SSHCallHomeTransport{
-			Config: &ssh.ClientConfig{
-				User: "test",
-				Auth: []ssh.AuthMethod{
-					ssh.Password("test"),
+	sigChannel := make(chan os.Signal, 1)
+	signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
+
+	chcList := []*netconf.CallHomeClientConfig{
+		{
+			Transport: &netconf.SSHCallHomeTransport{
+				Config: &ssh.ClientConfig{
+					User: "foo",
+					Auth: []ssh.AuthMethod{
+						ssh.Password("bar"),
+					},
+					// as specified in rfc8071 3.1 C5 netconf client must validate host keys
+					HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 				},
-				// as specified in rfc8071 3.1 C5 netconf client must validate host keys
-				HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 			},
+			Address: "192.168.121.17",
 		},
-		Address: "192.168.121.230",
 	}
 
-	chs, err := netconf.NewCallHomeServer(netconf.WithCallHomeClient(chc), netconf.WithAddress("0.0.0.0:4339"))
+	chs, err := netconf.NewCallHomeServer(netconf.WithCallHomeClientConfig(chcList...), netconf.WithAddress("0.0.0.0:4339"))
 	if err != nil {
 		panic(err)
 	}
@@ -34,22 +43,28 @@ func main() {
 			panic(err)
 		}
 	}()
-	time.Sleep(10 * time.Second)
-	session, err := chs.ClientSession("192.168.121.230")
-	if err != nil {
-		panic(err)
-	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	deviceConfig, err := session.GetConfig(ctx, "running")
-	if err != nil {
-		log.Fatalf("failed to get config: %v", err)
-	}
-
-	log.Printf("Config:\n%s\n", deviceConfig)
-
-	if err := session.Close(context.Background()); err != nil {
-		log.Print(err)
+	go func() {
+		for {
+			select {
+			case e := <-chs.ErrorChannel():
+				fmt.Println(e.Error())
+			case chc := <-chs.CallHomeClientChannel():
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				deviceConfig, err := chc.Session().GetConfig(ctx, "running")
+				cancel()
+				if err != nil {
+					log.Fatalf("failed to get config: %v", err)
+				}
+				log.Printf("Config:\n%s\n", deviceConfig)
+			}
+		}
+	}()
+	select {
+	case <-sigChannel:
+		if err := chs.Close(); err != nil {
+			log.Print(err)
+		}
+		os.Exit(0)
 	}
 }

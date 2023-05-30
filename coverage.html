@@ -206,9 +206,9 @@ type HelloMsg struct {
 
 // RPCMsg maps the xml value of &lt;rpc&gt; in RFC6241
 type RPCMsg struct {
-        XMLName   xml.Name    `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
-        MessageID uint64      `xml:"message-id,attr"`
-        Operation interface{} `xml:",innerxml"`
+        XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
+        MessageID uint64   `xml:"message-id,attr"`
+        Operation any      `xml:",innerxml"`
 }
 
 func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
@@ -564,8 +564,8 @@ type editConfigReq struct {
         TestStrategy         TestStrategy  `xml:"test-option,omitempty"`
         ErrorStrategy        ErrorStrategy `xml:"error-option,omitempty"`
         // either of these two values
-        Config interface{} `xml:"config,omitempty"`
-        URL    string      `xml:"url,omitempty"`
+        Config any    `xml:"config,omitempty"`
+        URL    string `xml:"url,omitempty"`
 }
 
 // EditOption is a optional arguments to [Session.EditConfig] method
@@ -577,7 +577,7 @@ type EditConfigOption interface {
 // updating an existing target config datastore.
 //
 // [RFC6241 7.2]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.2
-func (s *Session) EditConfig(ctx context.Context, target Datastore, config interface{}, opts ...EditConfigOption) error <span class="cov8" title="1">{
+func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, opts ...EditConfigOption) error <span class="cov8" title="1">{
         req := editConfigReq{
                 Target: target,
         }
@@ -607,9 +607,9 @@ func (s *Session) EditConfig(ctx context.Context, target Datastore, config inter
 }
 
 type copyConfigReq struct {
-        XMLName xml.Name    `xml:"copy-config"`
-        Source  interface{} `xml:"source"`
-        Target  interface{} `xml:"target"`
+        XMLName xml.Name `xml:"copy-config"`
+        Source  any      `xml:"source"`
+        Target  any      `xml:"target"`
 }
 
 // CopyConfig issues the `&lt;copy-config&gt;` operation as defined in [RFC6241 7.3]
@@ -621,7 +621,7 @@ type copyConfigReq struct {
 // for the source or target datastore.
 //
 // [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
-func (s *Session) CopyConfig(ctx context.Context, source, target interface{}) error <span class="cov8" title="1">{
+func (s *Session) CopyConfig(ctx context.Context, source, target any) error <span class="cov8" title="1">{
         req := copyConfigReq{
                 Source: source,
                 Target: target,
@@ -689,11 +689,11 @@ func (s *Session) KillSession(ctx context.Context, sessionID uint32) error <span
 }</span>
 
 type validateReq struct {
-        XMLName xml.Name    `xml:"validate"`
-        Source  interface{} `xml:"source"`
+        XMLName xml.Name `xml:"validate"`
+        Source  any      `xml:"source"`
 }
 
-func (s *Session) Validate(ctx context.Context, source interface{}) error <span class="cov8" title="1">{
+func (s *Session) Validate(ctx context.Context, source any) error <span class="cov8" title="1">{
         req := validateReq{
                 Source: source,
         }
@@ -1048,7 +1048,7 @@ func (s *Session) req(msgID uint64) (bool, *req) <span class="cov8" title="1">{
         return true, req</span>
 }
 
-func (s *Session) writeMsg(v interface{}) error <span class="cov8" title="1">{
+func (s *Session) writeMsg(v any) error <span class="cov8" title="1">{
         w, err := s.tr.MsgWriter()
         if err != nil </span><span class="cov0" title="0">{
                 return err
@@ -1108,7 +1108,7 @@ func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <sp
 
 // Call issues a rpc call for the given NETCONF operation and unmarshaling the
 // response into `resp`.
-func (s *Session) Call(ctx context.Context, op interface{}, resp interface{}) error <span class="cov8" title="1">{
+func (s *Session) Call(ctx context.Context, op any, resp any) error <span class="cov8" title="1">{
         msg := &amp;RPCMsg{
                 Operation: op,
         }

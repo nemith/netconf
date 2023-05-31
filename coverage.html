@@ -61,7 +61,7 @@
 				
 				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (56.1%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (56.8%)</option>
 				
 				<option value="file4">github.com/nemith/netconf/transport/frame.go (50.0%)</option>
 				
@@ -1014,10 +1014,13 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
 func (s *Session) recv() <span class="cov8" title="1">{
         var err error
         for </span><span class="cov8" title="1">{
-                if err := s.recvMsg(); errors.Is(err, io.EOF) </span><span class="cov0" title="0">{
+                err = s.recvMsg()
+                if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) </span><span class="cov0" title="0">{
                         break</span>
                 }
-                <span class="cov8" title="1">log.Printf("netconf: failed to read incoming message: %s", err)</span>
+                <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                        log.Printf("netconf: failed to read incoming message: %v", err)
+                }</span>
         }
         <span class="cov0" title="0">s.mu.Lock()
         defer s.mu.Unlock()
@@ -1027,13 +1030,9 @@ func (s *Session) recv() <span class="cov8" title="1">{
                 close(req.reply)
         }</span>
 
-        <span class="cov0" title="0">if err == io.EOF || err == io.ErrUnexpectedEOF </span><span class="cov0" title="0">{
-                if s.closing </span><span class="cov0" title="0">{
-                        return
-                }</span>
-        }
-
-        <span class="cov0" title="0">log.Printf("netconf: connection closed unexpectedly")</span>
+        <span class="cov0" title="0">if !s.closing </span><span class="cov0" title="0">{
+                log.Printf("netconf: connection closed unexpectedly")
+        }</span>
 }
 
 func (s *Session) req(msgID uint64) (bool, *req) <span class="cov8" title="1">{

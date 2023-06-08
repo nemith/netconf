@@ -487,8 +487,7 @@ type CreateSubscriptionOption interface {
 }
 
 type createSubscriptionReq struct {
-	XMLName xml.Name `xml:"create-subscription"`
-	XMLNS   string   `xml:"xmlns,attr"`
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 create-subscription"`
 	Stream  string   `xml:"stream,omitempty"`
 	// TODO: Implement filter
 	//Filter    int64    `xml:"filter,omitempty"`
@@ -519,7 +518,6 @@ func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscrip
 	for _, opt := range opts {
 		opt.apply(&req)
 	}
-	req.XMLNS = notNamespace
 	// TODO: eventual custom notifications rpc logic, e.g. create subscription only if notification capability is present
 
 	var resp OKResp

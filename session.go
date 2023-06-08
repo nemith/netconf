@@ -52,10 +52,10 @@ type Session struct {
 	tr        transport.Transport
 	sessionID uint64
 
-	clientCaps capabilitySet
-	serverCaps capabilitySet
+	clientCaps          capabilitySet
+	serverCaps          capabilitySet
 	notificationHandler NotificationHandler
-	
+
 	mu      sync.Mutex
 	seq     uint64
 	reqs    map[uint64]*req
@@ -85,10 +85,10 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	}
 
 	s := &Session{
-		tr:         transport,
-		clientCaps: newCapabilitySet(cfg.capabilities...),
-		reqs:       make(map[uint64]*req),
-		notificationHandler: cfg.notificationHandler,		
+		tr:                  transport,
+		clientCaps:          newCapabilitySet(cfg.capabilities...),
+		reqs:                make(map[uint64]*req),
+		notificationHandler: cfg.notificationHandler,
 	}
 	return s
 }
@@ -189,8 +189,6 @@ type req struct {
 	ctx   context.Context
 }
 
-const notNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
-
 func (s *Session) recvMsg() error {
 	r, err := s.tr.MsgReader()
 	if err != nil {
@@ -205,16 +203,18 @@ func (s *Session) recvMsg() error {
 	}
 
 	const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
+	const notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
 
 	switch root.Name {
-	case xml.Name{Space: notNamespace, Local: "notification"}:
+	case xml.Name{Space: notifNamespace, Local: "notification"}:
+		if s.notificationHandler == nil {
+			return nil
+		}
 		var notif NotificationMsg
 		if err := dec.DecodeElement(&notif, root); err != nil {
-			log.Printf("failed to decode notification message: %v", err)
+			return fmt.Errorf("failed to decode notification message: %w", err)
 		}
-		if s.notificationHandler != nil {
-			s.notificationHandler(notif)
-		}
+		s.notificationHandler(notif)
 	case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:
 		var reply RPCReplyMsg
 		if err := dec.DecodeElement(&reply, root); err != nil {
@@ -235,6 +235,7 @@ func (s *Session) recvMsg() error {
 	default:
 		return fmt.Errorf("unknown message type: %q", root.Name.Local)
 	}
+	return nil
 }
 
 // recv is the main receive loop.  It runs concurrently to be able to handle

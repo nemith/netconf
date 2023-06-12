@@ -202,8 +202,10 @@ func (s *Session) recvMsg() error {
 		return err
 	}
 
-	const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
-	const notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
+	const (
+		ncNamespace    = "urn:ietf:params:xml:ns:netconf:base:1.0"
+		notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
+	)
 
 	switch root.Name {
 	case xml.Name{Space: notifNamespace, Local: "notification"}:

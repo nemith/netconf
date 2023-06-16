@@ -59,13 +59,13 @@
 				
 				<option value="file1">github.com/nemith/netconf/msg.go (47.8%)</option>
 				
-				<option value="file2">github.com/nemith/netconf/ops.go (91.7%)</option>
+				<option value="file2">github.com/nemith/netconf/ops.go (92.6%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (56.8%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (53.2%)</option>
 				
 				<option value="file4">github.com/nemith/netconf/transport/frame.go (50.0%)</option>
 				
-				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (68.8%)</option>
+				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (66.7%)</option>
 				
 				</select>
 			</div>
@@ -797,6 +797,49 @@ func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) 
         <span class="cov8" title="1">var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
+
+// CreateSubscriptionOption is a optional arguments to [Session.CreateSubscription] method
+type CreateSubscriptionOption interface {
+        apply(req *createSubscriptionReq)
+}
+
+type createSubscriptionReq struct {
+        XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 create-subscription"`
+        Stream  string   `xml:"stream,omitempty"`
+        // TODO: Implement filter
+        //Filter    int64    `xml:"filter,omitempty"`
+        StartTime string `xml:"startTime,omitempty"`
+        EndTime   string `xml:"endTime,omitempty"`
+}
+
+type stream string
+type startTime time.Time
+type endTime time.Time
+
+func (o stream) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+        req.Stream = string(o)
+}</span>
+func (o startTime) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+        req.StartTime = time.Time(o).Format(time.RFC3339)
+}</span>
+func (o endTime) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+        req.EndTime = time.Time(o).Format(time.RFC3339)
+}</span>
+
+func WithStreamOption(s string) CreateSubscriptionOption        <span class="cov8" title="1">{ return stream(s) }</span>
+func WithStartTimeOption(st time.Time) CreateSubscriptionOption <span class="cov8" title="1">{ return startTime(st) }</span>
+func WithEndTimeOption(et time.Time) CreateSubscriptionOption   <span class="cov8" title="1">{ return endTime(et) }</span>
+
+func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscriptionOption) error <span class="cov8" title="1">{
+        var req createSubscriptionReq
+        for _, opt := range opts </span><span class="cov8" title="1">{
+                opt.apply(&amp;req)
+        }</span>
+        // TODO: eventual custom notifications rpc logic, e.g. create subscription only if notification capability is present
+
+        <span class="cov8" title="1">var resp OKResp
+        return s.Call(ctx, &amp;req, &amp;resp)</span>
+}
 </pre>
 		
 		<pre class="file" id="file3" style="display: none">package netconf
@@ -818,7 +861,8 @@ import (
 var ErrClosed = errors.New("closed connection")
 
 type sessionConfig struct {
-        capabilities []string
+        capabilities        []string
+        notificationHandler NotificationHandler
 }
 
 type SessionOption interface {
@@ -837,19 +881,43 @@ func WithCapability(capabilities ...string) SessionOption <span class="cov0" tit
         return capabilityOpt(capabilities)
 }</span>
 
+type notificationHandlerOpt NotificationHandler
+
+func (o notificationHandlerOpt) apply(cfg *sessionConfig) <span class="cov0" title="0">{
+        cfg.notificationHandler = NotificationHandler(o)
+}</span>
+
+func WithNotificationHandler(nh NotificationHandler) SessionOption <span class="cov0" title="0">{
+        return notificationHandlerOpt(nh)
+}</span>
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
         tr        transport.Transport
         sessionID uint64
 
-        clientCaps capabilitySet
-        serverCaps capabilitySet
+        clientCaps          capabilitySet
+        serverCaps          capabilitySet
+        notificationHandler NotificationHandler
 
         mu      sync.Mutex
         seq     uint64
         reqs    map[uint64]*req
         closing bool
 }
+
+// NotificationHandler function allows to work with received notifications.
+// A NotificationHandler function can be passed in as an option when calling Open method of Session object
+// A typical use of the NofificationHandler function is to retrieve notifications once they are received so
+// that they can be parsed and/or stored somewhere.
+// Sample usage:
+// func GetNotificationsHandler(c chan string) netconf.NotificationsHandler {
+//        return func(nm NotificationMsg) {
+//                // just send the raw notification data to the channel
+//                c &lt;- nm
+//        }
+//}
+type NotificationHandler func(msg NotificationMsg)
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="1">{
         cfg := sessionConfig{
@@ -861,9 +929,10 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
         }</span>
 
         <span class="cov8" title="1">s := &amp;Session{
-                tr:         transport,
-                clientCaps: newCapabilitySet(cfg.capabilities...),
-                reqs:       make(map[uint64]*req),
+                tr:                  transport,
+                clientCaps:          newCapabilitySet(cfg.capabilities...),
+                reqs:                make(map[uint64]*req),
+                notificationHandler: cfg.notificationHandler,
         }
         return s</span>
 }
@@ -977,16 +1046,21 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">const ncNamespace = "urn:ietf:params:xml:ns:netconf:base:1.0"
+        <span class="cov8" title="1">const (
+                ncNamespace    = "urn:ietf:params:xml:ns:netconf:base:1.0"
+                notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
+        )
 
         switch root.Name </span>{
-        /* Not supported yet. Will implement post beta release
-        case "notification":
-                var notif NotificationMsg
-                if err := dec.DecodeElement(&amp;notif, root); err != nil {
-                        log.Printf("failed to decode notification message: %v", err)
-                }
-        */
+        case xml.Name{Space: notifNamespace, Local: "notification"}:<span class="cov0" title="0">
+                if s.notificationHandler == nil </span><span class="cov0" title="0">{
+                        return nil
+                }</span>
+                <span class="cov0" title="0">var notif NotificationMsg
+                if err := dec.DecodeElement(&amp;notif, root); err != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("failed to decode notification message: %w", err)
+                }</span>
+                <span class="cov0" title="0">s.notificationHandler(notif)</span>
         case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
                 var reply RPCReplyMsg
                 if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
@@ -1007,6 +1081,7 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
         default:<span class="cov0" title="0">
                 return fmt.Errorf("unknown message type: %q", root.Name.Local)</span>
         }
+        <span class="cov0" title="0">return nil</span>
 }
 
 // recv is the main receive loop.  It runs concurrently to be able to handle
@@ -1591,9 +1666,10 @@ type Transport struct {
         sess  *ssh.Session
         stdin io.WriteCloser
 
-        // indicate that we "own" the client and should close it with the session
-        // when the transport is closed.
-        ownedClient bool
+        // set to true if the transport is managing the underlying ssh connection
+        // and should close it when the transport is closed.  This is is set to true
+        // when used with `Dial`.
+        managed bool
 
         *framer
 }
@@ -1612,11 +1688,37 @@ func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
+
+        // Setup a go routine to monitor the context and close the connection.  This
+        // is needed as the underlying ssh library doesn't support contexts so this
+        // approximates a context based cancelation/timeout for the ssh handshake.
+        //
+        // An alternative would be timeout based with conn.SetDeadline(), but then we
+        // would manage two timeouts.  One for tcp connection and one for ssh
+        // handshake and wouldn't support any other event based cancelation.
+        <span class="cov8" title="1">done := make(chan struct{})
+        go func() </span><span class="cov8" title="1">{
+                select </span>{
+                case &lt;-ctx.Done():<span class="cov0" title="0">
+                        // context is canceled so close the underlying connection.  Will
+                        // will catch ctx.Err() later.
+                        conn.Close()</span>
+                case &lt;-done:<span class="cov8" title="1"></span>
+                }
+        }()
+
         <span class="cov8" title="1">sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
         if err != nil </span><span class="cov0" title="0">{
-                return nil, err
-        }</span>
-        <span class="cov8" title="1">client := ssh.NewClient(sshConn, chans, reqs)
+                // if there is a context timeout return that error instead of the actual
+                // error from ssh.NewClientConn.
+                if ctx.Err() != nil </span><span class="cov0" title="0">{
+                        return nil, ctx.Err()
+                }</span>
+                <span class="cov0" title="0">return nil, err</span>
+        }
+        <span class="cov8" title="1">close(done) // make sure we cleanup the context monitor routine
+
+        client := ssh.NewClient(sshConn, chans, reqs)
         return newTransport(client, true)</span>
 }
 
@@ -1628,7 +1730,7 @@ func NewTransport(client *ssh.Client) (*Transport, error) <span class="cov0" tit
         return newTransport(client, false)
 }</span>
 
-func newTransport(client *ssh.Client, owned bool) (*Transport, error) <span class="cov8" title="1">{
+func newTransport(client *ssh.Client, managed bool) (*Transport, error) <span class="cov8" title="1">{
         sess, err := client.NewSession()
         if err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to create ssh session: %w", err)
@@ -1650,10 +1752,10 @@ func newTransport(client *ssh.Client, owned bool) (*Transport, error) <span clas
         }</span>
 
         <span class="cov8" title="1">return &amp;Transport{
-                c:           client,
-                ownedClient: owned,
-                sess:        sess,
-                stdin:       w,
+                c:       client,
+                managed: managed,
+                sess:    sess,
+                stdin:   w,
 
                 framer: transport.NewFramer(r, w),
         }, nil</span>
@@ -1676,7 +1778,7 @@ func (t *Transport) Close() error <span class="cov8" title="1">{
                 retErr = fmt.Errorf("failed to close ssh channel: %w", err)
         }</span>
 
-        <span class="cov8" title="1">if t.ownedClient </span><span class="cov8" title="1">{
+        <span class="cov8" title="1">if t.managed </span><span class="cov8" title="1">{
                 if err := t.c.Close(); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to close ssh connnection: %w", t.c.Close())
                 }</span>

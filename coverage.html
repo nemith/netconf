@@ -57,11 +57,11 @@
 				
 				<option value="file0">github.com/nemith/netconf/capability.go (83.3%)</option>
 				
-				<option value="file1">github.com/nemith/netconf/msg.go (47.8%)</option>
+				<option value="file1">github.com/nemith/netconf/msg.go (44.7%)</option>
 				
-				<option value="file2">github.com/nemith/netconf/ops.go (92.6%)</option>
+				<option value="file2">github.com/nemith/netconf/ops.go (93.6%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (53.2%)</option>
+				<option value="file3">github.com/nemith/netconf/session.go (52.6%)</option>
 				
 				<option value="file4">github.com/nemith/netconf/transport/frame.go (50.0%)</option>
 				
@@ -198,20 +198,20 @@ func (x *RawXML) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span 
 }</span>
 
 // helloMsg maps the xml value of the &lt;hello&gt; message in RFC6241
-type HelloMsg struct {
+type helloMsg struct {
         XMLName      xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 hello"`
         SessionID    uint64   `xml:"session-id,omitempty"`
         Capabilities []string `xml:"capabilities&gt;capability"`
 }
 
-// RPCMsg maps the xml value of &lt;rpc&gt; in RFC6241
-type RPCMsg struct {
+// request maps the xml value of &lt;rpc&gt; in RFC6241
+type request struct {
         XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
         MessageID uint64   `xml:"message-id,attr"`
         Operation any      `xml:",innerxml"`
 }
 
-func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (msg *request) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
         if msg.Operation == nil </span><span class="cov8" title="1">{
                 return fmt.Errorf("operation cannot be nil")
         }</span>
@@ -219,24 +219,50 @@ func (msg *RPCMsg) MarshalXML(e *xml.Encoder, start xml.StartElement) error <spa
         // TODO: validate operation is named?
 
         // alias the type to not cause recursion calling e.Encode
-        <span class="cov8" title="1">type rpcMsg RPCMsg
+        <span class="cov8" title="1">type rpcMsg request
         inner := rpcMsg(*msg)
         return e.Encode(&amp;inner)</span>
 }
 
-// RPCReplyMsg maps the xml value of &lt;rpc-reply&gt; in RFC6241
-type RPCReplyMsg struct {
+// Reply maps the xml value of &lt;rpc-reply&gt; in RFC6241
+type Reply struct {
         XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
         MessageID uint64    `xml:"message-id,attr"`
         Errors    RPCErrors `xml:"rpc-error,omitempty"`
         Body      []byte    `xml:",innerxml"`
 }
 
-type NotificationMsg struct {
+// Decode will decode the body of a reply into a value pointed to by v.  This is
+// a simple wrapper around xml.Unmarshal.
+func (r Reply) Decode(v interface{}) error <span class="cov8" title="1">{
+        return xml.Unmarshal(r.Body, v)
+}</span>
+
+// Err will return the error(s) from a Reply that are severity of `error` or
+// higher.
+func (r Reply) Err() error <span class="cov8" title="1">{
+        errs := r.Errors.Filter()
+        switch len(errs) </span>{
+        case 0:<span class="cov8" title="1">
+                return nil</span>
+        case 1:<span class="cov0" title="0">
+                return errs[0]</span>
+        default:<span class="cov0" title="0">
+                return errs</span>
+        }
+}
+
+type Notification struct {
         XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
         EventTime time.Time `xml:"eventTime"`
-        Data      []byte    `xml:",innerxml"`
+        Body      []byte    `xml:",innerxml"`
 }
+
+// Decode will decode the body of a noticiation into a value pointed to by v.
+// This is a simple wrapper around xml.Unmarshal.
+func (r Notification) Decode(v interface{}) error <span class="cov0" title="0">{
+        return xml.Unmarshal(r.Body, v)
+}</span>
 
 type ErrSeverity string
 
@@ -295,6 +321,21 @@ func (e RPCError) Error() string <span class="cov0" title="0">{
 
 type RPCErrors []RPCError
 
+func (errs RPCErrors) Filter() RPCErrors <span class="cov8" title="1">{
+        if len(errs) == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">filteredErrs := make(RPCErrors, 0, len(errs))
+        for _, err := range errs </span><span class="cov0" title="0">{
+                if err.Severity == ErrSevWarning </span><span class="cov0" title="0">{
+                        continue</span>
+                }
+                <span class="cov0" title="0">filteredErrs = append(filteredErrs, err)</span>
+        }
+        <span class="cov0" title="0">return filteredErrs</span>
+}
+
 func (errs RPCErrors) Error() string <span class="cov0" title="0">{
         var sb strings.Builder
         for i, err := range errs </span><span class="cov0" title="0">{
@@ -307,11 +348,11 @@ func (errs RPCErrors) Error() string <span class="cov0" title="0">{
 }
 
 func (errs RPCErrors) Unwrap() []error <span class="cov0" title="0">{
-        boxed := make([]error, len(errs))
+        boxedErrs := make([]error, len(errs))
         for i, err := range errs </span><span class="cov0" title="0">{
-                boxed[i] = err
+                boxedErrs[i] = err
         }</span>
-        <span class="cov0" title="0">return boxed</span>
+        <span class="cov0" title="0">return boxedErrs</span>
 }
 </pre>
 		
@@ -392,20 +433,6 @@ func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span clas
         return e.EncodeElement(&amp;v, start)
 }</span>
 
-/*type RawConfig []byte
-
-func (c RawConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-        var v struct {
-                Config struct {
-                        Inner []byte `xml:",innerxml"`
-                } `xml:"config,"`
-        }
-        v.Config.Inner = []byte(c)
-
-        return e.EncodeElement(&amp;v, start)
-}*/
-
-// XXX: these should be typed?
 const (
         // Running configuration datastore. Required by RFC6241
         Running Datastore = "running"
@@ -419,13 +446,13 @@ const (
         Startup Datastore = "startup" //
 )
 
-type getConfigReq struct {
+type GetConfigReq struct {
         XMLName xml.Name  `xml:"get-config"`
         Source  Datastore `xml:"source"`
         // Filter
 }
 
-type getConfigResp struct {
+type GetConfigReply struct {
         XMLName xml.Name `xml:"data"`
         Config  []byte   `xml:",innerxml"`
 }
@@ -435,11 +462,11 @@ type getConfigResp struct {
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
 func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, error) <span class="cov8" title="1">{
-        req := getConfigReq{
+        req := GetConfigReq{
                 Source: source,
         }
-        var resp getConfigResp
 
+        var resp GetConfigReply
         if err := s.Call(ctx, &amp;req, &amp;resp); err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
@@ -537,9 +564,9 @@ type (
         errorStrategy        ErrorStrategy
 )
 
-func (o defaultMergeStrategy) apply(req *editConfigReq) <span class="cov8" title="1">{ req.DefaultMergeStrategy = MergeStrategy(o) }</span>
-func (o testStrategy) apply(req *editConfigReq)         <span class="cov8" title="1">{ req.TestStrategy = TestStrategy(o) }</span>
-func (o errorStrategy) apply(req *editConfigReq)        <span class="cov8" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
+func (o defaultMergeStrategy) apply(req *EditConfigReq) <span class="cov8" title="1">{ req.DefaultMergeStrategy = MergeStrategy(o) }</span>
+func (o testStrategy) apply(req *EditConfigReq)         <span class="cov8" title="1">{ req.TestStrategy = TestStrategy(o) }</span>
+func (o errorStrategy) apply(req *EditConfigReq)        <span class="cov8" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
 
 // WithDefaultMergeStrategy sets the default config merging strategy for the
 // &lt;edit-config&gt; operation.  Only [Merge], [Replace], and [None] are supported
@@ -557,12 +584,13 @@ func WithTestStrategy(op TestStrategy) EditConfigOption <span class="cov8" title
 // config.  See [ErrorStrategy] for the available options.
 func WithErrorStrategy(opt ErrorStrategy) EditConfigOption <span class="cov8" title="1">{ return errorStrategy(opt) }</span>
 
-type editConfigReq struct {
+type EditConfigReq struct {
         XMLName              xml.Name      `xml:"edit-config"`
         Target               Datastore     `xml:"target"`
         DefaultMergeStrategy MergeStrategy `xml:"default-operation,omitempty"`
         TestStrategy         TestStrategy  `xml:"test-option,omitempty"`
         ErrorStrategy        ErrorStrategy `xml:"error-option,omitempty"`
+
         // either of these two values
         Config any    `xml:"config,omitempty"`
         URL    string `xml:"url,omitempty"`
@@ -570,7 +598,7 @@ type editConfigReq struct {
 
 // EditOption is a optional arguments to [Session.EditConfig] method
 type EditConfigOption interface {
-        apply(*editConfigReq)
+        apply(*EditConfigReq)
 }
 
 // EditConfig issues the `&lt;edit-config&gt;` operation defined in [RFC6241 7.2] for
@@ -578,7 +606,7 @@ type EditConfigOption interface {
 //
 // [RFC6241 7.2]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.2
 func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, opts ...EditConfigOption) error <span class="cov8" title="1">{
-        req := editConfigReq{
+        req := EditConfigReq{
                 Target: target,
         }
 
@@ -606,7 +634,7 @@ func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, 
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
 
-type copyConfigReq struct {
+type CopyConfigReq struct {
         XMLName xml.Name `xml:"copy-config"`
         Source  any      `xml:"source"`
         Target  any      `xml:"target"`
@@ -622,7 +650,7 @@ type copyConfigReq struct {
 //
 // [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
 func (s *Session) CopyConfig(ctx context.Context, source, target any) error <span class="cov8" title="1">{
-        req := copyConfigReq{
+        req := CopyConfigReq{
                 Source: source,
                 Target: target,
         }
@@ -631,13 +659,13 @@ func (s *Session) CopyConfig(ctx context.Context, source, target any) error <spa
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-type deleteConfigReq struct {
+type DeleteConfigReq struct {
         XMLName xml.Name  `xml:"delete-config"`
         Target  Datastore `xml:"target"`
 }
 
 func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
-        req := deleteConfigReq{
+        req := DeleteConfigReq{
                 Target: target,
         }
 
@@ -645,56 +673,58 @@ func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error <spa
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-type lockReq struct {
+type LockReq struct {
         XMLName xml.Name
         Target  Datastore `xml:"target"`
 }
 
 func (s *Session) Lock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
-        req := lockReq{
+        req := LockReq{
                 XMLName: xml.Name{Local: "lock"},
                 Target:  target,
         }
-        var resp OKResp
 
+        var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
 func (s *Session) Unlock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
-        req := lockReq{
+        req := LockReq{
                 XMLName: xml.Name{Local: "unlock"},
                 Target:  target,
         }
-        var resp OKResp
 
+        var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-func (s *Session) Get(ctx context.Context /* filter */) error <span class="cov0" title="0">{
-        panic("unimplemented")</span>
+/*
+func (s *Session) Get(ctx context.Context,  filter Filter) error {
+        panic("unimplemented")
 }
+*/
 
-type killSessionReq struct {
+type KillSessionReq struct {
         XMLName   xml.Name `xml:"kill-session"`
         SessionID uint32   `xml:"session-id"`
 }
 
 func (s *Session) KillSession(ctx context.Context, sessionID uint32) error <span class="cov8" title="1">{
-        req := killSessionReq{
+        req := KillSessionReq{
                 SessionID: sessionID,
         }
-        var resp OKResp
 
+        var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-type validateReq struct {
+type ValidateReq struct {
         XMLName xml.Name `xml:"validate"`
         Source  any      `xml:"source"`
 }
 
 func (s *Session) Validate(ctx context.Context, source any) error <span class="cov8" title="1">{
-        req := validateReq{
+        req := ValidateReq{
                 Source: source,
         }
 
@@ -702,7 +732,7 @@ func (s *Session) Validate(ctx context.Context, source any) error <span class="c
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-type commitReq struct {
+type CommitReq struct {
         XMLName        xml.Name   `xml:"commit"`
         Confirmed      ExtantBool `xml:"confirmed,omitempty"`
         ConfirmTimeout int64      `xml:"confirm-timeout,omitempty"`
@@ -712,7 +742,7 @@ type commitReq struct {
 
 // CommitOption is a optional arguments to [Session.Commit] method
 type CommitOption interface {
-        apply(*commitReq)
+        apply(*CommitReq)
 }
 
 type confirmed bool
@@ -722,16 +752,16 @@ type confirmedTimeout struct {
 type persist string
 type persistID string
 
-func (o confirmed) apply(req *commitReq) <span class="cov8" title="1">{ req.Confirmed = true }</span>
-func (o confirmedTimeout) apply(req *commitReq) <span class="cov8" title="1">{
+func (o confirmed) apply(req *CommitReq) <span class="cov8" title="1">{ req.Confirmed = true }</span>
+func (o confirmedTimeout) apply(req *CommitReq) <span class="cov8" title="1">{
         req.Confirmed = true
         req.ConfirmTimeout = int64(o.Seconds())
 }</span>
-func (o persist) apply(req *commitReq) <span class="cov8" title="1">{
+func (o persist) apply(req *CommitReq) <span class="cov8" title="1">{
         req.Confirmed = true
         req.Persist = string(o)
 }</span>
-func (o persistID) apply(req *commitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+func (o persistID) apply(req *CommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
 
 // RollbackOnError will restore the configuration back to before the
 // `&lt;edit-config&gt;` operation took place.  This requires the device to
@@ -763,7 +793,7 @@ func WithPersistID(id string) persistID <span class="cov8" title="1">{ return pe
 // Commit will commit a canidate config to the running comming. This requires
 // the device to support the `:canidate` capability.
 func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error <span class="cov8" title="1">{
-        var req commitReq
+        var req CommitReq
         for _, opt := range opts </span><span class="cov8" title="1">{
                 opt.apply(&amp;req)
         }</span>
@@ -778,18 +808,18 @@ func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error <span 
 
 // CancelCommitOption is a optional arguments to [Session.CancelCommit] method
 type CancelCommitOption interface {
-        applyCancelCommit(*cancelCommitReq)
+        applyCancelCommit(*CancelCommitReq)
 }
 
-func (o persistID) applyCancelCommit(req *cancelCommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+func (o persistID) applyCancelCommit(req *CancelCommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
 
-type cancelCommitReq struct {
+type CancelCommitReq struct {
         XMLName   xml.Name `xml:"cancel-commit"`
         PersistID string   `xml:"persist-id,omitempty"`
 }
 
 func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) error <span class="cov8" title="1">{
-        var req cancelCommitReq
+        var req CancelCommitReq
         for _, opt := range opts </span><span class="cov8" title="1">{
                 opt.applyCancelCommit(&amp;req)
         }</span>
@@ -800,10 +830,10 @@ func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) 
 
 // CreateSubscriptionOption is a optional arguments to [Session.CreateSubscription] method
 type CreateSubscriptionOption interface {
-        apply(req *createSubscriptionReq)
+        apply(req *CreateSubscriptionReq)
 }
 
-type createSubscriptionReq struct {
+type CreateSubscriptionReq struct {
         XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 create-subscription"`
         Stream  string   `xml:"stream,omitempty"`
         // TODO: Implement filter
@@ -816,13 +846,13 @@ type stream string
 type startTime time.Time
 type endTime time.Time
 
-func (o stream) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+func (o stream) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
         req.Stream = string(o)
 }</span>
-func (o startTime) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+func (o startTime) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
         req.StartTime = time.Time(o).Format(time.RFC3339)
 }</span>
-func (o endTime) apply(req *createSubscriptionReq) <span class="cov8" title="1">{
+func (o endTime) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
         req.EndTime = time.Time(o).Format(time.RFC3339)
 }</span>
 
@@ -831,7 +861,7 @@ func WithStartTimeOption(st time.Time) CreateSubscriptionOption <span class="cov
 func WithEndTimeOption(et time.Time) CreateSubscriptionOption   <span class="cov8" title="1">{ return endTime(et) }</span>
 
 func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscriptionOption) error <span class="cov8" title="1">{
-        var req createSubscriptionReq
+        var req CreateSubscriptionReq
         for _, opt := range opts </span><span class="cov8" title="1">{
                 opt.apply(&amp;req)
         }</span>
@@ -853,6 +883,7 @@ import (
         "log"
         "net"
         "sync"
+        "sync/atomic"
         "syscall"
 
         "github.com/nemith/netconf/transport"
@@ -895,13 +926,13 @@ func WithNotificationHandler(nh NotificationHandler) SessionOption <span class="
 type Session struct {
         tr        transport.Transport
         sessionID uint64
+        seq       atomic.Uint64
 
         clientCaps          capabilitySet
         serverCaps          capabilitySet
         notificationHandler NotificationHandler
 
         mu      sync.Mutex
-        seq     uint64
         reqs    map[uint64]*req
         closing bool
 }
@@ -910,14 +941,7 @@ type Session struct {
 // A NotificationHandler function can be passed in as an option when calling Open method of Session object
 // A typical use of the NofificationHandler function is to retrieve notifications once they are received so
 // that they can be parsed and/or stored somewhere.
-// Sample usage:
-// func GetNotificationsHandler(c chan string) netconf.NotificationsHandler {
-//        return func(nm NotificationMsg) {
-//                // just send the raw notification data to the channel
-//                c &lt;- nm
-//        }
-//}
-type NotificationHandler func(msg NotificationMsg)
+type NotificationHandler func(msg Notification)
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="1">{
         cfg := sessionConfig{
@@ -954,7 +978,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 
 // handshake exchanges handshake messages and reports if there are any errors.
 func (s *Session) handshake() error <span class="cov8" title="1">{
-        clientMsg := HelloMsg{
+        clientMsg := helloMsg{
                 Capabilities: s.clientCaps.All(),
         }
         if err := s.writeMsg(&amp;clientMsg); err != nil </span><span class="cov0" title="0">{
@@ -968,7 +992,7 @@ func (s *Session) handshake() error <span class="cov8" title="1">{
         // TODO: capture this error some how (ah defer and errors)
         <span class="cov8" title="1">defer r.Close()
 
-        var serverMsg HelloMsg
+        var serverMsg helloMsg
         if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov8" title="1">{
                 return fmt.Errorf("failed to read server hello message: %w", err)
         }</span>
@@ -1029,7 +1053,7 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" 
 }
 
 type req struct {
-        reply chan RPCReplyMsg
+        reply chan Reply
         ctx   context.Context
 }
 
@@ -1056,13 +1080,13 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
                 if s.notificationHandler == nil </span><span class="cov0" title="0">{
                         return nil
                 }</span>
-                <span class="cov0" title="0">var notif NotificationMsg
+                <span class="cov0" title="0">var notif Notification
                 if err := dec.DecodeElement(&amp;notif, root); err != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("failed to decode notification message: %w", err)
                 }</span>
                 <span class="cov0" title="0">s.notificationHandler(notif)</span>
         case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
-                var reply RPCReplyMsg
+                var reply Reply
                 if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
                         // What should we do here?  Kill the connection?
                         return fmt.Errorf("failed to decode rpc-reply message: %w", err)
@@ -1134,19 +1158,16 @@ func (s *Session) writeMsg(v any) error <span class="cov8" title="1">{
         <span class="cov8" title="1">return w.Close()</span>
 }
 
-func (s *Session) send(ctx context.Context, msg *RPCMsg) (chan RPCReplyMsg, error) <span class="cov8" title="1">{
+func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) <span class="cov8" title="1">{
         s.mu.Lock()
         defer s.mu.Unlock()
-
-        s.seq++
-        msg.MessageID = s.seq
 
         if err := s.writeMsg(msg); err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
 
         // cap of 1 makes sure we don't block on send
-        <span class="cov8" title="1">ch := make(chan RPCReplyMsg, 1)
+        <span class="cov8" title="1">ch := make(chan Reply, 1)
         s.reqs[msg.MessageID] = &amp;req{
                 reply: ch,
                 ctx:   ctx,
@@ -1155,15 +1176,22 @@ func (s *Session) send(ctx context.Context, msg *RPCMsg) (chan RPCReplyMsg, erro
         return ch, nil</span>
 }
 
-// Do issues a low level RPC call taking in a full RPCMsg and returning the full
-// RPCReplyMsg.  In most cases `Session.Call` will do what you want handling
-// errors and marshaling/unmarshaling your data.`
-func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <span class="cov8" title="1">{
+// Do issues a rpc call for the given NETCONF operation returning a Reply.  RPC
+// errors (i.e erros in the `&lt;rpc-errors&gt;` section of the `&lt;rpc-reply&gt;`) are
+// converted into go errors automatically.  Instead use `reply.Err()` or
+// `reply.RPCErrors` to access the errors and/or warnings.
+func (s *Session) Do(ctx context.Context, req any) (*Reply, error) <span class="cov8" title="1">{
+        msg := &amp;request{
+                MessageID: s.seq.Add(1),
+                Operation: req,
+        }
+
         ch, err := s.send(ctx, msg)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
 
+        // wait for reply or context to be cancelled.
         <span class="cov8" title="1">select </span>{
         case reply, ok := &lt;-ch:<span class="cov8" title="1">
                 if !ok </span><span class="cov0" title="0">{
@@ -1180,32 +1208,22 @@ func (s *Session) Do(ctx context.Context, msg *RPCMsg) (*RPCReplyMsg, error) <sp
         }
 }
 
-// Call issues a rpc call for the given NETCONF operation and unmarshaling the
-// response into `resp`.
-func (s *Session) Call(ctx context.Context, op any, resp any) error <span class="cov8" title="1">{
-        msg := &amp;RPCMsg{
-                Operation: op,
-        }
-
-        reply, err := s.Do(ctx, msg)
+// Call issues a rpc message with `req` as the body and decodes the reponse into
+// a pointer at `resp`.  Any Call errors are presented as a go error.
+func (s *Session) Call(ctx context.Context, req any, resp any) error <span class="cov8" title="1">{
+        reply, err := s.Do(ctx, &amp;req)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        // return rpc errors if we have them
-        <span class="cov8" title="1">switch </span>{
-        case len(reply.Errors) == 1:<span class="cov0" title="0">
-                return reply.Errors[0]</span>
-        case len(reply.Errors) &gt; 1:<span class="cov0" title="0">
-                return reply.Errors</span>
-        }
+        <span class="cov8" title="1">if err := reply.Err(); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
 
-        // unmarshal the body
-        <span class="cov8" title="1">if resp != nil </span><span class="cov8" title="1">{
-                if err = xml.Unmarshal(reply.Body, resp); err != nil </span><span class="cov0" title="0">{
-                        return err
-                }</span>
-        }
+        <span class="cov8" title="1">if err := reply.Decode(&amp;resp); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
         <span class="cov8" title="1">return nil</span>
 }
 
@@ -1221,7 +1239,7 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
         }
 
         // This may fail so save the error but still close the underlying transport.
-        rpcErr := s.Call(ctx, &amp;closeSession{}, nil)
+        _, callErr := s.Do(ctx, &amp;closeSession{})
 
         // Close the connection and ignore errors if the remote side hung up first.
         if err := s.tr.Close(); err != nil &amp;&amp;
@@ -1233,8 +1251,8 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
                 }</span>
         }
 
-        <span class="cov0" title="0">if rpcErr != io.EOF </span><span class="cov0" title="0">{
-                return rpcErr
+        <span class="cov0" title="0">if callErr != io.EOF </span><span class="cov0" title="0">{
+                return callErr
         }</span>
 
         <span class="cov0" title="0">return nil</span>

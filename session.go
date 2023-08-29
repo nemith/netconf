@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -189,30 +190,26 @@ func (s *Session) recvMsg() error {
 		return err
 	}
 	defer r.Close()
-	dec := xml.NewDecoder(r)
+
+	msg, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	return s.parseMsg(msg)
+}
+
+func (s *Session) parseMsg(msg []byte) error {
+	dec := xml.NewDecoder(bytes.NewReader(msg))
 
 	root, err := startElement(dec)
 	if err != nil {
 		return err
 	}
 
-	const (
-		ncNamespace    = "urn:ietf:params:xml:ns:netconf:base:1.0"
-		notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
-	)
-
 	switch root.Name {
-	case xml.Name{Space: notifNamespace, Local: "notification"}:
-		if s.notificationHandler == nil {
-			return nil
-		}
-		var notif Notification
-		if err := dec.DecodeElement(&notif, root); err != nil {
-			return fmt.Errorf("failed to decode notification message: %w", err)
-		}
-		s.notificationHandler(notif)
-	case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:
-		var reply Reply
+	case RPCReplyName:
+		reply := Reply{raw: msg}
 		if err := dec.DecodeElement(&reply, root); err != nil {
 			// What should we do here?  Kill the connection?
 			return fmt.Errorf("failed to decode rpc-reply message: %w", err)
@@ -228,6 +225,17 @@ func (s *Session) recvMsg() error {
 		case <-req.ctx.Done():
 			return fmt.Errorf("message %d context canceled: %s", reply.MessageID, req.ctx.Err().Error())
 		}
+
+	case NofificationName:
+		if s.notificationHandler == nil {
+			return nil
+		}
+		notif := Notification{raw: msg}
+		if err := dec.DecodeElement(&notif, root); err != nil {
+			return fmt.Errorf("failed to decode notification message: %w", err)
+		}
+		s.notificationHandler(notif)
+
 	default:
 		return fmt.Errorf("unknown message type: %q", root.Name.Local)
 	}
@@ -342,6 +350,8 @@ func (s *Session) Call(ctx context.Context, req any, resp any) error {
 		return err
 	}
 
+	// Return any <rpc-error>.  This defaults to a severity of `error` (warning
+	// are omitted).
 	if err := reply.Err(); err != nil {
 		return err
 	}
@@ -377,7 +387,9 @@ func (s *Session) Close(ctx context.Context) error {
 		}
 	}
 
-	if callErr != io.EOF {
+	// it's ok if we are already closed
+	if !errors.Is(callErr, io.EOF) &&
+		!errors.Is(callErr, ErrClosed) {
 		return callErr
 	}
 

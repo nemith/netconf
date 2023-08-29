@@ -33,7 +33,7 @@ func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error 
 	return nil
 }
 
-type OKResp struct {
+type OKReply struct {
 	OK ExtantBool `xml:"ok"`
 }
 
@@ -95,8 +95,7 @@ type GetConfigReq struct {
 }
 
 type GetConfigReply struct {
-	XMLName xml.Name `xml:"data"`
-	Config  []byte   `xml:",innerxml"`
+	Data []byte `xml:"data"`
 }
 
 // GetConfig implements the <get-config> rpc operation defined in [RFC6241 7.1].
@@ -113,7 +112,7 @@ func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, erro
 		return nil, err
 	}
 
-	return resp.Config, nil
+	return resp.Data, nil
 }
 
 // MergeStrategy defines the strategies for merging configuration in a
@@ -272,7 +271,7 @@ func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, 
 		opt.apply(&req)
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -297,7 +296,7 @@ func (s *Session) CopyConfig(ctx context.Context, source, target any) error {
 		Target: target,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -311,7 +310,7 @@ func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error {
 		Target: target,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -326,7 +325,7 @@ func (s *Session) Lock(ctx context.Context, target Datastore) error {
 		Target:  target,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -336,7 +335,7 @@ func (s *Session) Unlock(ctx context.Context, target Datastore) error {
 		Target:  target,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -356,7 +355,7 @@ func (s *Session) KillSession(ctx context.Context, sessionID uint32) error {
 		SessionID: sessionID,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -370,7 +369,7 @@ func (s *Session) Validate(ctx context.Context, source any) error {
 		Source: source,
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -444,7 +443,7 @@ func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error {
 		return fmt.Errorf("PersistID cannot be used with Confirmed/ConfirmedTimeout or Persist options")
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -466,7 +465,7 @@ func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) 
 		opt.applyCancelCommit(&req)
 	}
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }
 
@@ -509,6 +508,6 @@ func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscrip
 	}
 	// TODO: eventual custom notifications rpc logic, e.g. create subscription only if notification capability is present
 
-	var resp OKResp
+	var resp OKReply
 	return s.Call(ctx, &req, &resp)
 }

@@ -9,6 +9,18 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+var (
+	RPCReplyName = xml.Name{
+		Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
+		Local: "rpc-reply",
+	}
+
+	NofificationName = xml.Name{
+		Space: "urn:ietf:params:xml:ns:netconf:notification:1.0",
+		Local: "notification",
+	}
+)
+
 // RawXML captures the raw xml for the given element.  Used to process certain
 // elements later.
 type RawXML []byte
@@ -69,13 +81,38 @@ type Reply struct {
 	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
 	MessageID uint64    `xml:"message-id,attr"`
 	Errors    RPCErrors `xml:"rpc-error,omitempty"`
-	Body      []byte    `xml:",innerxml"`
+
+	raw []byte `xml:"-"`
 }
 
-// Decode will decode the body of a reply into a value pointed to by v.  This is
-// a simple wrapper around xml.Unmarshal.
+func ParseReply(data []byte) (*Reply, error) {
+	reply := Reply{
+		raw: data,
+	}
+	if err := xml.Unmarshal(data, &reply); err != nil {
+		return nil, fmt.Errorf("couldn't parse reply: %v", err)
+	}
+
+	return &reply, nil
+}
+
+// Decode will decode the entire `rpc-reply` into a value pointed to by v.  This
+// is a simple wrapper around xml.Unmarshal.
 func (r Reply) Decode(v interface{}) error {
-	return xml.Unmarshal(r.Body, v)
+	if r.raw == nil {
+		return fmt.Errorf("empty reply")
+	}
+	return xml.Unmarshal(r.raw, v)
+}
+
+// Raw returns the native message as it came from the server
+func (r Reply) Raw() []byte {
+	return r.raw
+}
+
+// String returns the message as string.
+func (r Reply) String() string {
+	return string(r.raw)
 }
 
 // Err will return go error(s) from a Reply that are of the given severities. If
@@ -121,13 +158,38 @@ func (r Reply) Err(severity ...ErrSeverity) error {
 type Notification struct {
 	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
 	EventTime time.Time `xml:"eventTime"`
-	Body      []byte    `xml:",innerxml"`
+
+	raw []byte `xml:"-"`
 }
 
-// Decode will decode the body of a noticiation into a value pointed to by v.
+func ParseNotification(data []byte) (*Notification, error) {
+	notif := Notification{
+		raw: data,
+	}
+	if err := xml.Unmarshal(data, &notif); err != nil {
+		return nil, fmt.Errorf("couldn't parse reply: %v", err)
+	}
+
+	return &notif, nil
+}
+
+// Decode will decode the entire `noticiation` into a value pointed to by v.
 // This is a simple wrapper around xml.Unmarshal.
-func (r Notification) Decode(v interface{}) error {
-	return xml.Unmarshal(r.Body, v)
+func (n Notification) Decode(v interface{}) error {
+	if n.raw == nil {
+		return fmt.Errorf("empty reply")
+	}
+	return xml.Unmarshal(n.raw, v)
+}
+
+// Raw returns the native message as it came from the server
+func (n Notification) Raw() []byte {
+	return n.raw
+}
+
+// String returns the message as string.
+func (n Notification) String() string {
+	return string(n.raw)
 }
 
 type ErrSeverity string

@@ -57,7 +57,7 @@
 				
 				<option value="file0">github.com/nemith/netconf/capability.go (83.3%)</option>
 				
-				<option value="file1">github.com/nemith/netconf/msg.go (44.7%)</option>
+				<option value="file1">github.com/nemith/netconf/msg.go (33.3%)</option>
 				
 				<option value="file2">github.com/nemith/netconf/ops.go (93.6%)</option>
 				
@@ -167,6 +167,8 @@ import (
         "fmt"
         "strings"
         "time"
+
+        "golang.org/x/exp/slices"
 )
 
 // RawXML captures the raw xml for the given element.  Used to process certain
@@ -238,12 +240,38 @@ func (r Reply) Decode(v interface{}) error <span class="cov8" title="1">{
         return xml.Unmarshal(r.Body, v)
 }</span>
 
-// Err will return the error(s) from a Reply that are severity of `error` or
-// higher.
-func (r Reply) Err() error <span class="cov8" title="1">{
-        errs := r.Errors.Filter()
+// Err will return go error(s) from a Reply that are of the given severities. If
+// no severity is given then it defaults to `ErrSevError`.
+//
+// If one error is present then the underlyign type is `RPCError`. If more than
+// one error exists than the underlying type is `[]RPCError`
+//
+// Example
+
+// get all errors with severity of error
+//
+//        if err := reply.Err(ErrSevError); err != nil { /* ... */ }
+//
+// or
+//
+//        if err := reply.Err(); err != nil { /* ... */ }
+//
+// get all errors with severity of only warning
+//
+//        if err := reply.Err(ErrSevWarning); err != nil { /* ... */ }
+//
+// get all errors
+//
+//        if err := reply.Err(ErrSevWarning, ErrSevError); err != nil { /* ... */ }
+func (r Reply) Err(severity ...ErrSeverity) error <span class="cov8" title="1">{
+        // fast escape for no errors
+        if len(r.Errors) == 0 </span><span class="cov8" title="1">{
+                return nil
+        }</span>
+
+        <span class="cov0" title="0">errs := r.Errors.Filter(severity...)
         switch len(errs) </span>{
-        case 0:<span class="cov8" title="1">
+        case 0:<span class="cov0" title="0">
                 return nil</span>
         case 1:<span class="cov0" title="0">
                 return errs[0]</span>
@@ -267,8 +295,8 @@ func (r Notification) Decode(v interface{}) error <span class="cov0" title="0">{
 type ErrSeverity string
 
 const (
-        ErrSevError   ErrSeverity = "error"
-        ErrSevWarning ErrSeverity = "warning"
+        SevError   ErrSeverity = "error"
+        SevWarning ErrSeverity = "warning"
 )
 
 type ErrType string
@@ -316,19 +344,23 @@ type RPCError struct {
 }
 
 func (e RPCError) Error() string <span class="cov0" title="0">{
-        return fmt.Sprintf("rpc error: %s", e.Message)
+        return fmt.Sprintf("netconf error: %s %s: %s", e.Type, e.Tag, e.Message)
 }</span>
 
 type RPCErrors []RPCError
 
-func (errs RPCErrors) Filter() RPCErrors <span class="cov8" title="1">{
-        if len(errs) == 0 </span><span class="cov8" title="1">{
+func (errs RPCErrors) Filter(severity ...ErrSeverity) RPCErrors <span class="cov0" title="0">{
+        if len(errs) == 0 </span><span class="cov0" title="0">{
                 return nil
+        }</span>
+
+        <span class="cov0" title="0">if len(severity) == 0 </span><span class="cov0" title="0">{
+                severity = []ErrSeverity{SevError}
         }</span>
 
         <span class="cov0" title="0">filteredErrs := make(RPCErrors, 0, len(errs))
         for _, err := range errs </span><span class="cov0" title="0">{
-                if err.Severity == ErrSevWarning </span><span class="cov0" title="0">{
+                if !slices.Contains(severity, err.Severity) </span><span class="cov0" title="0">{
                         continue</span>
                 }
                 <span class="cov0" title="0">filteredErrs = append(filteredErrs, err)</span>

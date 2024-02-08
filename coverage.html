@@ -63,7 +63,7 @@
 				
 				<option value="file3">github.com/nemith/netconf/session.go (52.6%)</option>
 				
-				<option value="file4">github.com/nemith/netconf/transport/frame.go (50.0%)</option>
+				<option value="file4">github.com/nemith/netconf/transport/frame.go (59.6%)</option>
 				
 				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (66.7%)</option>
 				
@@ -1473,7 +1473,10 @@ func (r *chunkReader) readHeader() error <span class="cov8" title="1">{
                 if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
-                <span class="cov8" title="1">return io.EOF</span>
+                // not stricly needed but it is the responsibility of this function to
+                // update chunkLeft.
+                <span class="cov8" title="1">r.chunkLeft = 0
+                return io.EOF</span>
         }
 
         <span class="cov8" title="1">var n int
@@ -1506,7 +1509,7 @@ func (r *chunkReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
                 return 0, ErrInvalidIO
         }</span>
 
-        // still reading existing chunk
+        // done with existing chunck so grab the next one
         <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
                 if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
                         return 0, err
@@ -1527,7 +1530,7 @@ func (r *chunkReader) ReadByte() (byte, error) <span class="cov8" title="1">{
                 return 0, ErrInvalidIO
         }</span>
 
-        // still reading existing chunk
+        // done with existing chunck so grab the next one
         <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
                 if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
                         return 0, err
@@ -1544,26 +1547,31 @@ func (r *chunkReader) ReadByte() (byte, error) <span class="cov8" title="1">{
 
 // Close will read the rest of the frame and consume it including
 // the end-of-frame markers if we haven't already done so.
-func (r *chunkReader) Close() error <span class="cov0" title="0">{
+func (r *chunkReader) Close() error <span class="cov8" title="1">{
         // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+        defer func() </span><span class="cov8" title="1">{ r.r = nil }</span>()
 
-        <span class="cov0" title="0">for </span><span class="cov0" title="0">{
-                if r.chunkLeft &lt;= 0 </span><span class="cov0" title="0">{
+        // read all remaining chunks until we get to the end of the frame.
+        <span class="cov8" title="1">for </span><span class="cov8" title="1">{
+                if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
+                        // readHeader return io.EOF when it encounter the end-of-frame
+                        // marker ("\n##\n")
                         err := r.readHeader()
                         switch err </span>{
                         case nil:<span class="cov0" title="0">
                                 break</span>
                         case io.EOF:<span class="cov0" title="0">
                                 return nil</span>
-                        default:<span class="cov0" title="0">
+                        default:<span class="cov8" title="1">
                                 return err</span>
                         }
                 }
 
-                <span class="cov0" title="0">if _, err := r.r.Discard(r.chunkLeft); err != nil </span><span class="cov0" title="0">{
+                <span class="cov0" title="0">n, err := r.r.Discard(r.chunkLeft)
+                if err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
+                <span class="cov0" title="0">r.chunkLeft -= n</span>
         }
 }
 
@@ -1652,18 +1660,18 @@ func (r *eomReader) ReadByte() (byte, error) <span class="cov8" title="1">{
 
 // Close will read the rest of the frame and consume it including
 // the end-of-frame marker.
-func (r *eomReader) Close() error <span class="cov0" title="0">{
+func (r *eomReader) Close() error <span class="cov8" title="1">{
         // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov0" title="0">{ r.r = nil }</span>()
+        defer func() </span><span class="cov8" title="1">{ r.r = nil }</span>()
 
-        <span class="cov0" title="0">var err error
-        for err == nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="1">var err error
+        for err == nil </span><span class="cov8" title="1">{
                 _, err = r.ReadByte()
-                if err == io.EOF </span><span class="cov0" title="0">{
+                if err == io.EOF </span><span class="cov8" title="1">{
                         return nil
                 }</span>
         }
-        <span class="cov0" title="0">return err</span>
+        <span class="cov8" title="1">return err</span>
 }
 
 type eomWriter struct {

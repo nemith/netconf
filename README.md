@@ -1,6 +1,6 @@
 # Go `netconf` client library
 
-WARNING: This is currently alpha quality.  The API isn't solid yet and a lot of testing still needs to be done as well as additional feaures.  Working for a solid beta API is incoming.
+WARNING: This is still pre-1.0 and the API may still change however this library is being use at scale in production with good results.
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/nemith/netconf.svg)](https://pkg.go.dev/github.com/nemith/netconf)
 [![Report Card](https://goreportcard.com/badge/github.com/nemith/netconf)](https://goreportcard.com/report/github.com/nemith/netconf)
@@ -10,7 +10,7 @@ WARNING: This is currently alpha quality.  The API isn't solid yet and a lot of 
 
 This library is used to create client applications for connecting to network devices via NETCONF.
 
-Like Go itself, only the latest two Go versions are tested and supported (Go 1.19 or Go 1.20).
+Like Go itself, only the latest two Go versions are tested and supported (Go 1.22 or Go 1.21).
 
 
 ## RFC Support

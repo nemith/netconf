@@ -238,9 +238,11 @@ func (s *Session) recvMsg() error {
 // interleaved messages (like notifications).
 func (s *Session) recv() {
 	var err error
+	var opErr *net.OpError
+
 	for {
 		err = s.recvMsg()
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &opErr) {
 			break
 		}
 		if err != nil {

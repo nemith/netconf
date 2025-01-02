@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"time"
@@ -149,9 +150,12 @@ func (t *Framer) MsgWriter() (io.WriteCloser, error) {
 
 var endOfChunks = []byte("\n##\n")
 
+// Defined in https://www.rfc-editor.org/rfc/rfc6242#section-4.2
+const maxChunk = math.MaxUint32
+
 type chunkReader struct {
 	r         *bufio.Reader
-	chunkLeft int
+	chunkLeft uint32
 }
 
 func (r *chunkReader) readHeader() error {
@@ -180,13 +184,13 @@ func (r *chunkReader) readHeader() error {
 		if _, err := r.r.Discard(2); err != nil {
 			return err
 		}
-		// not stricly needed but it is the responsibility of this function to
+		// not strictly needed but it is the responsibility of this function to
 		// update chunkLeft.
 		r.chunkLeft = 0
 		return io.EOF
 	}
 
-	var n int
+	var n uint32
 	for {
 		c, err := r.r.ReadByte()
 		if err != nil {
@@ -199,10 +203,9 @@ func (r *chunkReader) readHeader() error {
 		if c < '0' || c > '9' {
 			return ErrMalformedChunk
 		}
-		n = n*10 + int(c) - '0'
+		n = n*10 + uint32(c) - '0'
 	}
 
-	const maxChunk = 4294967295
 	if n < 1 || n > maxChunk {
 		return ErrMalformedChunk
 	}
@@ -215,20 +218,24 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 	if r.r == nil {
 		return 0, ErrInvalidIO
 	}
+	// make sure we can't try to read more than the max chunk
+	p = p[:maxChunk]
 
-	// done with existing chunck so grab the next one
+	// done with existing chunk so grab the next one
 	if r.chunkLeft <= 0 {
 		if err := r.readHeader(); err != nil {
 			return 0, err
 		}
 	}
 
-	if len(p) > r.chunkLeft {
+	// XXX: This potential down conversion should be safe cause we resize p
+	// above.  Hopefully no one is trying to read 4GB in one call.
+	if uint32(len(p)) > r.chunkLeft {
 		p = p[:r.chunkLeft]
 	}
 
 	n, err := r.r.Read(p)
-	r.chunkLeft -= n
+	r.chunkLeft -= uint32(n)
 	return n, err
 }
 
@@ -274,11 +281,11 @@ func (r *chunkReader) Close() error {
 			}
 		}
 
-		n, err := r.r.Discard(r.chunkLeft)
+		n, err := r.r.Discard(int(r.chunkLeft))
 		if err != nil {
 			return err
 		}
-		r.chunkLeft -= n
+		r.chunkLeft -= uint32(n)
 	}
 }
 

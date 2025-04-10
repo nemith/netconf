@@ -1,7 +1,8 @@
 module github.com/nemith/netconf
 
-go 1.21
-toolchain go1.23.6
+go 1.23.0
+
+toolchain go1.24.1
 
 require (
 	github.com/stretchr/testify v1.10.0

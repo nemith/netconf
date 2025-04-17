@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"bufio"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -161,6 +162,54 @@ func (s *Session) ClientCapabilities() []string {
 // it's hello message.
 func (s *Session) ServerCapabilities() []string {
 	return s.serverCaps.All()
+}
+
+type peekReader struct {
+	br     *bufio.Reader
+	offset int
+}
+
+func newPeakReader(r io.Reader) *peekReader {
+	// Reuse a bufio reader if given one
+	br, ok := r.(*bufio.Reader)
+	if !ok {
+		br = bufio.NewReader(r)
+	}
+
+	return &peekReader{br: br}
+}
+
+func (r *peekReader) Read(p []byte) (int, error) {
+	buf, err := r.br.Peek(r.offset + len(p))
+	if err != nil {
+		return 0, err
+	}
+
+	available := len(buf) - r.offset
+	if available <= 0 {
+		return 0, io.EOF
+	}
+
+	n := min(available, len(p))
+	copy(p, buf[r.offset:r.offset+n])
+	r.offset += n
+	return n, nil
+}
+
+// ByteReader implements io.ByteReader (duh) but this is mostly what encoding/xml uses.
+func (r *peekReader) ReadByte() (byte, error) {
+	buf, err := r.br.Peek(r.offset + 1)
+	if err != nil {
+		return 0, err
+	}
+
+	if len(buf) <= r.offset {
+		return 0, io.EOF
+	}
+
+	b := buf[r.offset]
+	r.offset++
+	return b, nil
 }
 
 // startElement will walk though a xml.Decode until it finds a start element

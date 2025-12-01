@@ -55,25 +55,36 @@
 			<div id="nav">
 				<select id="files">
 				
-				<option value="file0">github.com/nemith/netconf/capability.go (83.3%)</option>
+				<option value="file0">nemith.io/netconf/capability.go (83.3%)</option>
 				
-				<option value="file1">github.com/nemith/netconf/msg.go (33.3%)</option>
+				<option value="file1">nemith.io/netconf/msg.go (33.3%)</option>
 				
-				<option value="file2">github.com/nemith/netconf/ops.go (93.6%)</option>
+				<option value="file2">nemith.io/netconf/ops.go (93.6%)</option>
 				
-				<option value="file3">github.com/nemith/netconf/session.go (52.6%)</option>
+				<option value="file3">nemith.io/netconf/session.go (52.9%)</option>
 				
-				<option value="file4">github.com/nemith/netconf/transport/frame.go (59.6%)</option>
+				<option value="file4">nemith.io/netconf/transport/frame.go (59.2%)</option>
 				
-				<option value="file5">github.com/nemith/netconf/transport/ssh/ssh.go (66.7%)</option>
+				<option value="file5">nemith.io/netconf/transport/ssh/ssh.go (66.7%)</option>
+				
+				<option value="file6">nemith.io/netconf/transport/tls/tls.go (0.0%)</option>
 				
 				</select>
 			</div>
 			<div id="legend">
 				<span>not tracked</span>
 			
-				<span class="cov0">not covered</span>
-				<span class="cov8">covered</span>
+				<span class="cov0">no coverage</span>
+				<span class="cov1">low coverage</span>
+				<span class="cov2">*</span>
+				<span class="cov3">*</span>
+				<span class="cov4">*</span>
+				<span class="cov5">*</span>
+				<span class="cov6">*</span>
+				<span class="cov7">*</span>
+				<span class="cov8">*</span>
+				<span class="cov9">*</span>
+				<span class="cov10">high coverage</span>
 			
 			</div>
 		</div>
@@ -110,12 +121,12 @@ var DefaultCapabilities = []string{
 
 // ExpandCapability will automatically add the standard capability prefix of
 // `urn:ietf:params:netconf:capability` if not already present.
-func ExpandCapability(s string) string <span class="cov8" title="1">{
+func ExpandCapability(s string) string <span class="cov10" title="52">{
         if s == "" </span><span class="cov0" title="0">{
                 return ""
         }</span>
 
-        <span class="cov8" title="1">if s[0] != ':' </span><span class="cov8" title="1">{
+        <span class="cov10" title="52">if s[0] != ':' </span><span class="cov10" title="52">{
                 return s
         }</span>
 
@@ -128,7 +139,7 @@ type capabilitySet struct {
         caps map[string]struct{}
 }
 
-func newCapabilitySet(capabilities ...string) capabilitySet <span class="cov8" title="1">{
+func newCapabilitySet(capabilities ...string) capabilitySet <span class="cov8" title="25">{
         cs := capabilitySet{
                 caps: make(map[string]struct{}),
         }
@@ -136,14 +147,14 @@ func newCapabilitySet(capabilities ...string) capabilitySet <span class="cov8" t
         return cs
 }</span>
 
-func (cs *capabilitySet) Add(capabilities ...string) <span class="cov8" title="1">{
-        for _, cap := range capabilities </span><span class="cov8" title="1">{
+func (cs *capabilitySet) Add(capabilities ...string) <span class="cov8" title="25">{
+        for _, cap := range capabilities </span><span class="cov9" title="50">{
                 cap = ExpandCapability(cap)
                 cs.caps[cap] = struct{}{}
         }</span>
 }
 
-func (cs capabilitySet) Has(s string) bool <span class="cov8" title="1">{
+func (cs capabilitySet) Has(s string) bool <span class="cov2" title="2">{
         // XXX: need to figure out how to handle versions (i.e always map to 1.0 or
         // map to latest/any?)
         s = ExpandCapability(s)
@@ -151,12 +162,12 @@ func (cs capabilitySet) Has(s string) bool <span class="cov8" title="1">{
         return ok
 }</span>
 
-func (cs capabilitySet) All() []string <span class="cov8" title="1">{
+func (cs capabilitySet) All() []string <span class="cov4" title="4">{
         out := make([]string, 0, len(cs.caps))
         for cap := range cs.caps </span><span class="cov0" title="0">{
                 out = append(out, cap)
         }</span>
-        <span class="cov8" title="1">return out</span>
+        <span class="cov4" title="4">return out</span>
 }
 </pre>
 		
@@ -175,7 +186,7 @@ import (
 // elements later.
 type RawXML []byte
 
-func (x *RawXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (x *RawXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov4" title="4">{
         var inner struct {
                 Data []byte `xml:",innerxml"`
         }
@@ -184,13 +195,13 @@ func (x *RawXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <spa
                 return err
         }</span>
 
-        <span class="cov8" title="1">*x = inner.Data
+        <span class="cov4" title="4">*x = inner.Data
         return nil</span>
 }
 
 // MarshalXML implements xml.Marshaller.  Raw XML is passed verbatim, errors and
 // all.
-func (x *RawXML) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (x *RawXML) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov4" title="4">{
         inner := struct {
                 Data []byte `xml:",innerxml"`
         }{
@@ -213,15 +224,15 @@ type request struct {
         Operation any      `xml:",innerxml"`
 }
 
-func (msg *request) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
-        if msg.Operation == nil </span><span class="cov8" title="1">{
+func (msg *request) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov10" title="29">{
+        if msg.Operation == nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("operation cannot be nil")
         }</span>
 
         // TODO: validate operation is named?
 
         // alias the type to not cause recursion calling e.Encode
-        <span class="cov8" title="1">type rpcMsg request
+        <span class="cov9" title="28">type rpcMsg request
         inner := rpcMsg(*msg)
         return e.Encode(&amp;inner)</span>
 }
@@ -236,7 +247,7 @@ type Reply struct {
 
 // Decode will decode the body of a reply into a value pointed to by v.  This is
 // a simple wrapper around xml.Unmarshal.
-func (r Reply) Decode(v interface{}) error <span class="cov8" title="1">{
+func (r Reply) Decode(v interface{}) error <span class="cov9" title="24">{
         return xml.Unmarshal(r.Body, v)
 }</span>
 
@@ -263,9 +274,9 @@ func (r Reply) Decode(v interface{}) error <span class="cov8" title="1">{
 // get all errors
 //
 //        if err := reply.Err(ErrSevWarning, ErrSevError); err != nil { /* ... */ }
-func (r Reply) Err(severity ...ErrSeverity) error <span class="cov8" title="1">{
+func (r Reply) Err(severity ...ErrSeverity) error <span class="cov9" title="24">{
         // fast escape for no errors
-        if len(r.Errors) == 0 </span><span class="cov8" title="1">{
+        if len(r.Errors) == 0 </span><span class="cov9" title="24">{
                 return nil
         }</span>
 
@@ -400,7 +411,7 @@ import (
 
 type ExtantBool bool
 
-func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov4" title="3">{
         if !b </span><span class="cov0" title="0">{
                 return nil
         }</span>
@@ -411,15 +422,15 @@ func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <sp
         //
         // See https://github.com/golang/go/issues/21399
         // or https://github.com/golang/go/issues/26756 for a different hack.
-        <span class="cov8" title="1">return e.EncodeElement(struct{}{}, start)</span>
+        <span class="cov4" title="3">return e.EncodeElement(struct{}{}, start)</span>
 }
 
-func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov3" title="2">{
         v := &amp;struct{}{}
         if err := d.DecodeElement(v, &amp;start); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov8" title="1">*b = v != nil
+        <span class="cov3" title="2">*b = v != nil
         return nil</span>
 }
 
@@ -429,36 +440,36 @@ type OKResp struct {
 
 type Datastore string
 
-func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
-        if s == "" </span><span class="cov8" title="1">{
+func (s Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov10" title="20">{
+        if s == "" </span><span class="cov1" title="1">{
                 return fmt.Errorf("datastores cannot be empty")
         }</span>
 
         // XXX: it would be nice to actually just block names with crap in them
         // instead of escaping them, but we need to find a list of what is allowed
         // in an xml tag.
-        <span class="cov8" title="1">escaped, err := escapeXML(string(s))
+        <span class="cov9" title="19">escaped, err := escapeXML(string(s))
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("invalid string element: %w", err)
         }</span>
 
-        <span class="cov8" title="1">v := struct {
+        <span class="cov9" title="19">v := struct {
                 Elem string `xml:",innerxml"`
         }{Elem: "&lt;" + escaped + "/&gt;"}
         return e.EncodeElement(&amp;v, start)</span>
 }
 
-func escapeXML(input string) (string, error) <span class="cov8" title="1">{
+func escapeXML(input string) (string, error) <span class="cov9" title="19">{
         buf := &amp;strings.Builder{}
         if err := xml.EscapeText(buf, []byte(input)); err != nil </span><span class="cov0" title="0">{
                 return "", err
         }</span>
-        <span class="cov8" title="1">return buf.String(), nil</span>
+        <span class="cov9" title="19">return buf.String(), nil</span>
 }
 
 type URL string
 
-func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov8" title="1">{
+func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov3" title="2">{
         v := struct {
                 URL string `xml:"url"`
         }{string(u)}
@@ -493,7 +504,7 @@ type GetConfigReply struct {
 // `source` is the datastore to query.
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
-func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, error) <span class="cov8" title="1">{
+func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, error) <span class="cov1" title="1">{
         req := GetConfigReq{
                 Source: source,
         }
@@ -503,7 +514,7 @@ func (s *Session) GetConfig(ctx context.Context, source Datastore) ([]byte, erro
                 return nil, err
         }</span>
 
-        <span class="cov8" title="1">return resp.Config, nil</span>
+        <span class="cov1" title="1">return resp.Config, nil</span>
 }
 
 // MergeStrategy defines the strategies for merging configuration in a
@@ -596,25 +607,25 @@ type (
         errorStrategy        ErrorStrategy
 )
 
-func (o defaultMergeStrategy) apply(req *EditConfigReq) <span class="cov8" title="1">{ req.DefaultMergeStrategy = MergeStrategy(o) }</span>
-func (o testStrategy) apply(req *EditConfigReq)         <span class="cov8" title="1">{ req.TestStrategy = TestStrategy(o) }</span>
-func (o errorStrategy) apply(req *EditConfigReq)        <span class="cov8" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
+func (o defaultMergeStrategy) apply(req *EditConfigReq) <span class="cov1" title="1">{ req.DefaultMergeStrategy = MergeStrategy(o) }</span>
+func (o testStrategy) apply(req *EditConfigReq)         <span class="cov1" title="1">{ req.TestStrategy = TestStrategy(o) }</span>
+func (o errorStrategy) apply(req *EditConfigReq)        <span class="cov1" title="1">{ req.ErrorStrategy = ErrorStrategy(o) }</span>
 
 // WithDefaultMergeStrategy sets the default config merging strategy for the
 // &lt;edit-config&gt; operation.  Only [Merge], [Replace], and [None] are supported
 // (the rest of the strategies are for defining as attributed in individual
 // elements inside the `&lt;config&gt;` subtree).
-func WithDefaultMergeStrategy(op MergeStrategy) EditConfigOption <span class="cov8" title="1">{ return defaultMergeStrategy(op) }</span>
+func WithDefaultMergeStrategy(op MergeStrategy) EditConfigOption <span class="cov1" title="1">{ return defaultMergeStrategy(op) }</span>
 
 // WithTestStrategy sets the `test-option` in the `&lt;edit-config&gt;“ operation.
 // This defines what testing should be done the supplied configuration.  See the
 // documentation on [TestStrategy] for details on each strategy.
-func WithTestStrategy(op TestStrategy) EditConfigOption <span class="cov8" title="1">{ return testStrategy(op) }</span>
+func WithTestStrategy(op TestStrategy) EditConfigOption <span class="cov1" title="1">{ return testStrategy(op) }</span>
 
 // WithErrorStrategy sets the `error-option` in the `&lt;edit-config&gt;` operation.
 // This defines the behavior when errors are encountered applying the supplied
 // config.  See [ErrorStrategy] for the available options.
-func WithErrorStrategy(opt ErrorStrategy) EditConfigOption <span class="cov8" title="1">{ return errorStrategy(opt) }</span>
+func WithErrorStrategy(opt ErrorStrategy) EditConfigOption <span class="cov1" title="1">{ return errorStrategy(opt) }</span>
 
 type EditConfigReq struct {
         XMLName              xml.Name      `xml:"edit-config"`
@@ -637,32 +648,32 @@ type EditConfigOption interface {
 // updating an existing target config datastore.
 //
 // [RFC6241 7.2]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.2
-func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, opts ...EditConfigOption) error <span class="cov8" title="1">{
+func (s *Session) EditConfig(ctx context.Context, target Datastore, config any, opts ...EditConfigOption) error <span class="cov5" title="4">{
         req := EditConfigReq{
                 Target: target,
         }
 
         // XXX: Should we use reflect here?
         switch v := config.(type) </span>{
-        case string:<span class="cov8" title="1">
+        case string:<span class="cov1" title="1">
                 req.Config = struct {
                         Inner []byte `xml:",innerxml"`
                 }{Inner: []byte(v)}</span>
-        case []byte:<span class="cov8" title="1">
+        case []byte:<span class="cov1" title="1">
                 req.Config = struct {
                         Inner []byte `xml:",innerxml"`
                 }{Inner: v}</span>
-        case URL:<span class="cov8" title="1">
+        case URL:<span class="cov1" title="1">
                 req.URL = string(v)</span>
-        default:<span class="cov8" title="1">
+        default:<span class="cov1" title="1">
                 req.Config = config</span>
         }
 
-        <span class="cov8" title="1">for _, opt := range opts </span><span class="cov8" title="1">{
+        <span class="cov5" title="4">for _, opt := range opts </span><span class="cov4" title="3">{
                 opt.apply(&amp;req)
         }</span>
 
-        <span class="cov8" title="1">var resp OKResp
+        <span class="cov5" title="4">var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
 
@@ -681,7 +692,7 @@ type CopyConfigReq struct {
 // for the source or target datastore.
 //
 // [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
-func (s *Session) CopyConfig(ctx context.Context, source, target any) error <span class="cov8" title="1">{
+func (s *Session) CopyConfig(ctx context.Context, source, target any) error <span class="cov4" title="3">{
         req := CopyConfigReq{
                 Source: source,
                 Target: target,
@@ -696,7 +707,7 @@ type DeleteConfigReq struct {
         Target  Datastore `xml:"target"`
 }
 
-func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+func (s *Session) DeleteConfig(ctx context.Context, target Datastore) error <span class="cov1" title="1">{
         req := DeleteConfigReq{
                 Target: target,
         }
@@ -710,9 +721,9 @@ type LockReq struct {
         Target  Datastore `xml:"target"`
 }
 
-func (s *Session) Lock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+func (s *Session) Lock(ctx context.Context, target Datastore) error <span class="cov1" title="1">{
         req := LockReq{
-                XMLName: xml.Name{Local: "lock"},
+                XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "lock"},
                 Target:  target,
         }
 
@@ -720,9 +731,9 @@ func (s *Session) Lock(ctx context.Context, target Datastore) error <span class=
         return s.Call(ctx, &amp;req, &amp;resp)
 }</span>
 
-func (s *Session) Unlock(ctx context.Context, target Datastore) error <span class="cov8" title="1">{
+func (s *Session) Unlock(ctx context.Context, target Datastore) error <span class="cov1" title="1">{
         req := LockReq{
-                XMLName: xml.Name{Local: "unlock"},
+                XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "unlock"},
                 Target:  target,
         }
 
@@ -741,7 +752,7 @@ type KillSessionReq struct {
         SessionID uint32   `xml:"session-id"`
 }
 
-func (s *Session) KillSession(ctx context.Context, sessionID uint32) error <span class="cov8" title="1">{
+func (s *Session) KillSession(ctx context.Context, sessionID uint32) error <span class="cov1" title="1">{
         req := KillSessionReq{
                 SessionID: sessionID,
         }
@@ -755,7 +766,7 @@ type ValidateReq struct {
         Source  any      `xml:"source"`
 }
 
-func (s *Session) Validate(ctx context.Context, source any) error <span class="cov8" title="1">{
+func (s *Session) Validate(ctx context.Context, source any) error <span class="cov1" title="1">{
         req := ValidateReq{
                 Source: source,
         }
@@ -784,16 +795,16 @@ type confirmedTimeout struct {
 type persist string
 type persistID string
 
-func (o confirmed) apply(req *CommitReq) <span class="cov8" title="1">{ req.Confirmed = true }</span>
-func (o confirmedTimeout) apply(req *CommitReq) <span class="cov8" title="1">{
+func (o confirmed) apply(req *CommitReq) <span class="cov1" title="1">{ req.Confirmed = true }</span>
+func (o confirmedTimeout) apply(req *CommitReq) <span class="cov1" title="1">{
         req.Confirmed = true
         req.ConfirmTimeout = int64(o.Seconds())
 }</span>
-func (o persist) apply(req *CommitReq) <span class="cov8" title="1">{
+func (o persist) apply(req *CommitReq) <span class="cov1" title="1">{
         req.Confirmed = true
         req.Persist = string(o)
 }</span>
-func (o persistID) apply(req *CommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+func (o persistID) apply(req *CommitReq) <span class="cov1" title="1">{ req.PersistID = string(o) }</span>
 
 // RollbackOnError will restore the configuration back to before the
 // `&lt;edit-config&gt;` operation took place.  This requires the device to
@@ -805,36 +816,36 @@ func (o persistID) apply(req *CommitReq) <span class="cov8" title="1">{ req.Pers
 // extended by calling with `Commit` With `WithConfirmed` or
 // `WithConfirmedTimeout` or canceling the commit with a `CommitCancel` call.
 // This requires the device to support the `:confirmed-commit:1.1` capability.
-func WithConfirmed() CommitOption <span class="cov8" title="1">{ return confirmed(true) }</span>
+func WithConfirmed() CommitOption <span class="cov1" title="1">{ return confirmed(true) }</span>
 
 // WithConfirmedTimeout is like `WithConfirmed` but using the given timeout
 // duration instead of the device's default.
-func WithConfirmedTimeout(timeout time.Duration) CommitOption <span class="cov8" title="1">{ return confirmedTimeout{timeout} }</span>
+func WithConfirmedTimeout(timeout time.Duration) CommitOption <span class="cov1" title="1">{ return confirmedTimeout{timeout} }</span>
 
 // WithPersist allows you to set a identifier to confirm a commit in another
 // sessions.  Confirming the commit requires setting the `WithPersistID` in the
 // following `Commit` call matching the id set on the confirmed commit.  Will
 // mark the commit as confirmed if not already set.
-func WithPersist(id string) CommitOption <span class="cov8" title="1">{ return persist(id) }</span>
+func WithPersist(id string) CommitOption <span class="cov1" title="1">{ return persist(id) }</span>
 
 // WithPersistID is used to confirm a previous commit set with a given
 // identifier.  This allows you to confirm a commit from (potentially) another
 // sesssion.
-func WithPersistID(id string) persistID <span class="cov8" title="1">{ return persistID(id) }</span>
+func WithPersistID(id string) persistID <span class="cov3" title="2">{ return persistID(id) }</span>
 
 // Commit will commit a canidate config to the running comming. This requires
 // the device to support the `:canidate` capability.
-func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error <span class="cov8" title="1">{
+func (s *Session) Commit(ctx context.Context, opts ...CommitOption) error <span class="cov5" title="5">{
         var req CommitReq
-        for _, opt := range opts </span><span class="cov8" title="1">{
+        for _, opt := range opts </span><span class="cov5" title="4">{
                 opt.apply(&amp;req)
         }</span>
 
-        <span class="cov8" title="1">if req.PersistID != "" &amp;&amp; req.Confirmed </span><span class="cov0" title="0">{
+        <span class="cov5" title="5">if req.PersistID != "" &amp;&amp; req.Confirmed </span><span class="cov0" title="0">{
                 return fmt.Errorf("PersistID cannot be used with Confirmed/ConfirmedTimeout or Persist options")
         }</span>
 
-        <span class="cov8" title="1">var resp OKResp
+        <span class="cov5" title="5">var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
 
@@ -843,20 +854,20 @@ type CancelCommitOption interface {
         applyCancelCommit(*CancelCommitReq)
 }
 
-func (o persistID) applyCancelCommit(req *CancelCommitReq) <span class="cov8" title="1">{ req.PersistID = string(o) }</span>
+func (o persistID) applyCancelCommit(req *CancelCommitReq) <span class="cov1" title="1">{ req.PersistID = string(o) }</span>
 
 type CancelCommitReq struct {
         XMLName   xml.Name `xml:"cancel-commit"`
         PersistID string   `xml:"persist-id,omitempty"`
 }
 
-func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) error <span class="cov8" title="1">{
+func (s *Session) CancelCommit(ctx context.Context, opts ...CancelCommitOption) error <span class="cov3" title="2">{
         var req CancelCommitReq
-        for _, opt := range opts </span><span class="cov8" title="1">{
+        for _, opt := range opts </span><span class="cov1" title="1">{
                 opt.applyCancelCommit(&amp;req)
         }</span>
 
-        <span class="cov8" title="1">var resp OKResp
+        <span class="cov3" title="2">var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
 
@@ -878,28 +889,28 @@ type stream string
 type startTime time.Time
 type endTime time.Time
 
-func (o stream) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
+func (o stream) apply(req *CreateSubscriptionReq) <span class="cov1" title="1">{
         req.Stream = string(o)
 }</span>
-func (o startTime) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
+func (o startTime) apply(req *CreateSubscriptionReq) <span class="cov1" title="1">{
         req.StartTime = time.Time(o).Format(time.RFC3339)
 }</span>
-func (o endTime) apply(req *CreateSubscriptionReq) <span class="cov8" title="1">{
+func (o endTime) apply(req *CreateSubscriptionReq) <span class="cov1" title="1">{
         req.EndTime = time.Time(o).Format(time.RFC3339)
 }</span>
 
-func WithStreamOption(s string) CreateSubscriptionOption        <span class="cov8" title="1">{ return stream(s) }</span>
-func WithStartTimeOption(st time.Time) CreateSubscriptionOption <span class="cov8" title="1">{ return startTime(st) }</span>
-func WithEndTimeOption(et time.Time) CreateSubscriptionOption   <span class="cov8" title="1">{ return endTime(et) }</span>
+func WithStreamOption(s string) CreateSubscriptionOption        <span class="cov1" title="1">{ return stream(s) }</span>
+func WithStartTimeOption(st time.Time) CreateSubscriptionOption <span class="cov1" title="1">{ return startTime(st) }</span>
+func WithEndTimeOption(et time.Time) CreateSubscriptionOption   <span class="cov1" title="1">{ return endTime(et) }</span>
 
-func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscriptionOption) error <span class="cov8" title="1">{
+func (s *Session) CreateSubscription(ctx context.Context, opts ...CreateSubscriptionOption) error <span class="cov5" title="4">{
         var req CreateSubscriptionReq
-        for _, opt := range opts </span><span class="cov8" title="1">{
+        for _, opt := range opts </span><span class="cov4" title="3">{
                 opt.apply(&amp;req)
         }</span>
         // TODO: eventual custom notifications rpc logic, e.g. create subscription only if notification capability is present
 
-        <span class="cov8" title="1">var resp OKResp
+        <span class="cov5" title="4">var resp OKResp
         return s.Call(ctx, &amp;req, &amp;resp)</span>
 }
 </pre>
@@ -918,7 +929,7 @@ import (
         "sync/atomic"
         "syscall"
 
-        "github.com/nemith/netconf/transport"
+        "nemith.io/netconf/transport"
 )
 
 var ErrClosed = errors.New("closed connection")
@@ -975,7 +986,7 @@ type Session struct {
 // that they can be parsed and/or stored somewhere.
 type NotificationHandler func(msg Notification)
 
-func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="1">{
+func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="24">{
         cfg := sessionConfig{
                 capabilities: DefaultCapabilities,
         }
@@ -984,7 +995,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
                 opt.apply(&amp;cfg)
         }</span>
 
-        <span class="cov8" title="1">s := &amp;Session{
+        <span class="cov8" title="24">s := &amp;Session{
                 tr:                  transport,
                 clientCaps:          newCapabilitySet(cfg.capabilities...),
                 reqs:                make(map[uint64]*req),
@@ -1000,7 +1011,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 
         // this needs a timeout of some sort.
         if err := s.handshake(); err != nil </span><span class="cov0" title="0">{
-                s.tr.Close()
+                s.tr.Close() // nolint:errcheck // TODO: catch and log err
                 return nil, err
         }</span>
 
@@ -1009,7 +1020,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 }
 
 // handshake exchanges handshake messages and reports if there are any errors.
-func (s *Session) handshake() error <span class="cov8" title="1">{
+func (s *Session) handshake() error <span class="cov4" title="4">{
         clientMsg := helloMsg{
                 Capabilities: s.clientCaps.All(),
         }
@@ -1017,27 +1028,26 @@ func (s *Session) handshake() error <span class="cov8" title="1">{
                 return fmt.Errorf("failed to write hello message: %w", err)
         }</span>
 
-        <span class="cov8" title="1">r, err := s.tr.MsgReader()
+        <span class="cov4" title="4">r, err := s.tr.MsgReader()
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        // TODO: capture this error some how (ah defer and errors)
-        <span class="cov8" title="1">defer r.Close()
+        <span class="cov4" title="4">defer r.Close() // nolint:errcheck // TODO: catch and log err
 
         var serverMsg helloMsg
-        if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov8" title="1">{
+        if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to read server hello message: %w", err)
         }</span>
 
-        <span class="cov8" title="1">if serverMsg.SessionID == 0 </span><span class="cov8" title="1">{
+        <span class="cov3" title="3">if serverMsg.SessionID == 0 </span><span class="cov1" title="1">{
                 return fmt.Errorf("server did not return a session-id")
         }</span>
 
-        <span class="cov8" title="1">if len(serverMsg.Capabilities) == 0 </span><span class="cov8" title="1">{
+        <span class="cov2" title="2">if len(serverMsg.Capabilities) == 0 </span><span class="cov1" title="1">{
                 return fmt.Errorf("server did not return any capabilities")
         }</span>
 
-        <span class="cov8" title="1">s.serverCaps = newCapabilitySet(serverMsg.Capabilities...)
+        <span class="cov1" title="1">s.serverCaps = newCapabilitySet(serverMsg.Capabilities...)
         s.sessionID = serverMsg.SessionID
 
         // upgrade the transport if we are on a larger version and the transport
@@ -1049,7 +1059,7 @@ func (s *Session) handshake() error <span class="cov8" title="1">{
                 }</span>
         }
 
-        <span class="cov8" title="1">return nil</span>
+        <span class="cov1" title="1">return nil</span>
 }
 
 // SessionID returns the current session ID exchanged in the hello messages.
@@ -1071,14 +1081,14 @@ func (s *Session) ServerCapabilities() []string <span class="cov0" title="0">{
 
 // startElement will walk though a xml.Decode until it finds a start element
 // and returns it.
-func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="1">{
-        for </span><span class="cov8" title="1">{
+func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="24">{
+        for </span><span class="cov8" title="24">{
                 tok, err := d.Token()
                 if err != nil </span><span class="cov0" title="0">{
                         return nil, err
                 }</span>
 
-                <span class="cov8" title="1">if start, ok := tok.(xml.StartElement); ok </span><span class="cov8" title="1">{
+                <span class="cov8" title="24">if start, ok := tok.(xml.StartElement); ok </span><span class="cov8" title="24">{
                         return &amp;start, nil
                 }</span>
         }
@@ -1089,12 +1099,12 @@ type req struct {
         ctx   context.Context
 }
 
-func (s *Session) recvMsg() error <span class="cov8" title="1">{
+func (s *Session) recvMsg() error <span class="cov10" title="48">{
         r, err := s.tr.MsgReader()
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov8" title="1">defer r.Close()
+        <span class="cov8" title="24">defer r.Close() // nolint:errcheck // TODO: catch error and log
         dec := xml.NewDecoder(r)
 
         root, err := startElement(dec)
@@ -1102,7 +1112,7 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">const (
+        <span class="cov8" title="24">const (
                 ncNamespace    = "urn:ietf:params:xml:ns:netconf:base:1.0"
                 notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
         )
@@ -1117,19 +1127,19 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
                         return fmt.Errorf("failed to decode notification message: %w", err)
                 }</span>
                 <span class="cov0" title="0">s.notificationHandler(notif)</span>
-        case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="1">
+        case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:<span class="cov8" title="24">
                 var reply Reply
                 if err := dec.DecodeElement(&amp;reply, root); err != nil </span><span class="cov0" title="0">{
                         // What should we do here?  Kill the connection?
                         return fmt.Errorf("failed to decode rpc-reply message: %w", err)
                 }</span>
-                <span class="cov8" title="1">ok, req := s.req(reply.MessageID)
+                <span class="cov8" title="24">ok, req := s.req(reply.MessageID)
                 if !ok </span><span class="cov0" title="0">{
                         return fmt.Errorf("cannot find reply channel for message-id: %d", reply.MessageID)
                 }</span>
 
-                <span class="cov8" title="1">select </span>{
-                case req.reply &lt;- reply:<span class="cov8" title="1">
+                <span class="cov8" title="24">select </span>{
+                case req.reply &lt;- reply:<span class="cov8" title="24">
                         return nil</span>
                 case &lt;-req.ctx.Done():<span class="cov0" title="0">
                         return fmt.Errorf("message %d context canceled: %s", reply.MessageID, req.ctx.Err().Error())</span>
@@ -1142,14 +1152,16 @@ func (s *Session) recvMsg() error <span class="cov8" title="1">{
 
 // recv is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
-func (s *Session) recv() <span class="cov8" title="1">{
+func (s *Session) recv() <span class="cov8" title="24">{
         var err error
-        for </span><span class="cov8" title="1">{
+        var opErr *net.OpError
+
+        for </span><span class="cov10" title="48">{
                 err = s.recvMsg()
-                if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) </span><span class="cov0" title="0">{
+                if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &amp;opErr) </span><span class="cov0" title="0">{
                         break</span>
                 }
-                <span class="cov8" title="1">if err != nil </span><span class="cov0" title="0">{
+                <span class="cov8" title="24">if err != nil </span><span class="cov0" title="0">{
                         log.Printf("netconf: failed to read incoming message: %v", err)
                 }</span>
         }
@@ -1166,7 +1178,7 @@ func (s *Session) recv() <span class="cov8" title="1">{
         }</span>
 }
 
-func (s *Session) req(msgID uint64) (bool, *req) <span class="cov8" title="1">{
+func (s *Session) req(msgID uint64) (bool, *req) <span class="cov8" title="24">{
         s.mu.Lock()
         defer s.mu.Unlock()
 
@@ -1174,23 +1186,23 @@ func (s *Session) req(msgID uint64) (bool, *req) <span class="cov8" title="1">{
         if !ok </span><span class="cov0" title="0">{
                 return false, nil
         }</span>
-        <span class="cov8" title="1">delete(s.reqs, msgID)
+        <span class="cov8" title="24">delete(s.reqs, msgID)
         return true, req</span>
 }
 
-func (s *Session) writeMsg(v any) error <span class="cov8" title="1">{
+func (s *Session) writeMsg(v any) error <span class="cov8" title="28">{
         w, err := s.tr.MsgWriter()
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">if err := xml.NewEncoder(w).Encode(v); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="28">if err := xml.NewEncoder(w).Encode(v); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov8" title="1">return w.Close()</span>
+        <span class="cov8" title="28">return w.Close()</span>
 }
 
-func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) <span class="cov8" title="1">{
+func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) <span class="cov8" title="24">{
         s.mu.Lock()
         defer s.mu.Unlock()
 
@@ -1199,7 +1211,7 @@ func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) <s
         }</span>
 
         // cap of 1 makes sure we don't block on send
-        <span class="cov8" title="1">ch := make(chan Reply, 1)
+        <span class="cov8" title="24">ch := make(chan Reply, 1)
         s.reqs[msg.MessageID] = &amp;req{
                 reply: ch,
                 ctx:   ctx,
@@ -1212,7 +1224,7 @@ func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) <s
 // errors (i.e erros in the `&lt;rpc-errors&gt;` section of the `&lt;rpc-reply&gt;`) are
 // converted into go errors automatically.  Instead use `reply.Err()` or
 // `reply.RPCErrors` to access the errors and/or warnings.
-func (s *Session) Do(ctx context.Context, req any) (*Reply, error) <span class="cov8" title="1">{
+func (s *Session) Do(ctx context.Context, req any) (*Reply, error) <span class="cov8" title="24">{
         msg := &amp;request{
                 MessageID: s.seq.Add(1),
                 Operation: req,
@@ -1224,12 +1236,12 @@ func (s *Session) Do(ctx context.Context, req any) (*Reply, error) <span class="
         }</span>
 
         // wait for reply or context to be cancelled.
-        <span class="cov8" title="1">select </span>{
-        case reply, ok := &lt;-ch:<span class="cov8" title="1">
+        <span class="cov8" title="24">select </span>{
+        case reply, ok := &lt;-ch:<span class="cov8" title="24">
                 if !ok </span><span class="cov0" title="0">{
                         return nil, ErrClosed
                 }</span>
-                <span class="cov8" title="1">return &amp;reply, nil</span>
+                <span class="cov8" title="24">return &amp;reply, nil</span>
         case &lt;-ctx.Done():<span class="cov0" title="0">
                 // remove any existing request
                 s.mu.Lock()
@@ -1242,21 +1254,21 @@ func (s *Session) Do(ctx context.Context, req any) (*Reply, error) <span class="
 
 // Call issues a rpc message with `req` as the body and decodes the reponse into
 // a pointer at `resp`.  Any Call errors are presented as a go error.
-func (s *Session) Call(ctx context.Context, req any, resp any) error <span class="cov8" title="1">{
+func (s *Session) Call(ctx context.Context, req any, resp any) error <span class="cov8" title="24">{
         reply, err := s.Do(ctx, &amp;req)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">if err := reply.Err(); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="24">if err := reply.Err(); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">if err := reply.Decode(&amp;resp); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="24">if err := reply.Decode(&amp;resp); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">return nil</span>
+        <span class="cov8" title="24">return nil</span>
 }
 
 // Close will gracefully close the sessions first by sending a `close-session`
@@ -1283,7 +1295,7 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
                 }</span>
         }
 
-        <span class="cov0" title="0">if callErr != io.EOF </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if !errors.Is(callErr, io.EOF) </span><span class="cov0" title="0">{
                 return callErr
         }</span>
 
@@ -1299,6 +1311,7 @@ import (
         "errors"
         "fmt"
         "io"
+        "math"
         "os"
         "path/filepath"
         "time"
@@ -1442,136 +1455,144 @@ func (t *Framer) MsgWriter() (io.WriteCloser, error) <span class="cov0" title="0
 
 var endOfChunks = []byte("\n##\n")
 
+// Defined in https://www.rfc-editor.org/rfc/rfc6242#section-4.2
+const maxChunk = math.MaxUint32
+
 type chunkReader struct {
         r         *bufio.Reader
-        chunkLeft int
+        chunkLeft uint32
 }
 
-func (r *chunkReader) readHeader() error <span class="cov8" title="1">{
+func (r *chunkReader) readHeader() error <span class="cov6" title="52">{
         peeked, err := r.r.Peek(4)
         switch err </span>{
-        case nil:<span class="cov8" title="1">
+        case nil:<span class="cov5" title="30">
                 break</span>
-        case io.EOF:<span class="cov8" title="1">
+        case io.EOF:<span class="cov5" title="22">
                 return io.ErrUnexpectedEOF</span>
         default:<span class="cov0" title="0">
                 return err</span>
         }
 
-        <span class="cov8" title="1">if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
+        <span class="cov5" title="30">if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
         // make sure the preamble of `\n#` which is used for both the start of a
         // chuck and the end-of-chunk marker is valid.
-        <span class="cov8" title="1">if peeked[0] != '\n' || peeked[1] != '#' </span><span class="cov8" title="1">{
+        <span class="cov5" title="30">if peeked[0] != '\n' || peeked[1] != '#' </span><span class="cov2" title="4">{
                 return ErrMalformedChunk
         }</span>
 
         // check to see if we are at the end of the read
-        <span class="cov8" title="1">if peeked[2] == '#' &amp;&amp; peeked[3] == '\n' </span><span class="cov8" title="1">{
+        <span class="cov5" title="26">if peeked[2] == '#' &amp;&amp; peeked[3] == '\n' </span><span class="cov3" title="8">{
                 if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
-                // not stricly needed but it is the responsibility of this function to
+                // not strictly needed but it is the responsibility of this function to
                 // update chunkLeft.
-                <span class="cov8" title="1">r.chunkLeft = 0
+                <span class="cov3" title="8">r.chunkLeft = 0
                 return io.EOF</span>
         }
 
-        <span class="cov8" title="1">var n int
-        for </span><span class="cov8" title="1">{
+        <span class="cov5" title="18">var n uint32
+        for </span><span class="cov6" title="56">{
                 c, err := r.r.ReadByte()
                 if err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
 
-                <span class="cov8" title="1">if c == '\n' </span><span class="cov8" title="1">{
+                <span class="cov6" title="56">if c == '\n' </span><span class="cov4" title="16">{
                         break</span>
                 }
-                <span class="cov8" title="1">if c &lt; '0' || c &gt; '9' </span><span class="cov8" title="1">{
+                <span class="cov6" title="40">if c &lt; '0' || c &gt; '9' </span><span class="cov1" title="2">{
                         return ErrMalformedChunk
                 }</span>
-                <span class="cov8" title="1">n = n*10 + int(c) - '0'</span>
+                <span class="cov6" title="38">n = n*10 + uint32(c) - '0'</span>
         }
 
-        <span class="cov8" title="1">const maxChunk = 4294967295
-        if n &lt; 1 || n &gt; maxChunk </span><span class="cov8" title="1">{
+        <span class="cov4" title="16">if n &lt; 1 || n &gt; maxChunk </span><span class="cov2" title="4">{
                 return ErrMalformedChunk
         }</span>
 
-        <span class="cov8" title="1">r.chunkLeft = n
+        <span class="cov4" title="12">r.chunkLeft = n
         return nil</span>
 }
 
-func (r *chunkReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
+func (r *chunkReader) Read(p []byte) (int, error) <span class="cov4" title="16">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
+        // make sure we can't try to read more than the max chunk
+        <span class="cov4" title="16">if len(p) &gt; maxChunk </span><span class="cov0" title="0">{
+                p = p[:maxChunk]
+        }</span>
 
-        // done with existing chunck so grab the next one
-        <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
-                if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
+        // done with existing chunk so grab the next one
+        <span class="cov4" title="16">if r.chunkLeft &lt;= 0 </span><span class="cov4" title="16">{
+                if err := r.readHeader(); err != nil </span><span class="cov4" title="10">{
                         return 0, err
                 }</span>
         }
 
-        <span class="cov8" title="1">if len(p) &gt; r.chunkLeft </span><span class="cov8" title="1">{
+        // XXX: This potential down conversion should be safe cause we resize p
+        // above.  Hopefully no one is trying to read 4GB in one call.
+        <span class="cov3" title="6">if uint32(len(p)) &gt; r.chunkLeft </span><span class="cov3" title="6">{
                 p = p[:r.chunkLeft]
         }</span>
 
-        <span class="cov8" title="1">n, err := r.r.Read(p)
-        r.chunkLeft -= n
+        <span class="cov3" title="6">n, err := r.r.Read(p)
+        r.chunkLeft -= uint32(n)
         return n, err</span>
 }
 
-func (r *chunkReader) ReadByte() (byte, error) <span class="cov8" title="1">{
+func (r *chunkReader) ReadByte() (byte, error) <span class="cov7" title="120">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
         // done with existing chunck so grab the next one
-        <span class="cov8" title="1">if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
-                if err := r.readHeader(); err != nil </span><span class="cov8" title="1">{
+        <span class="cov7" title="120">if r.chunkLeft &lt;= 0 </span><span class="cov4" title="16">{
+                if err := r.readHeader(); err != nil </span><span class="cov4" title="10">{
                         return 0, err
                 }</span>
         }
 
-        <span class="cov8" title="1">b, err := r.r.ReadByte()
+        <span class="cov7" title="110">b, err := r.r.ReadByte()
         if err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
-        <span class="cov8" title="1">r.chunkLeft--
+        <span class="cov7" title="110">r.chunkLeft--
         return b, nil</span>
 }
 
 // Close will read the rest of the frame and consume it including
 // the end-of-frame markers if we haven't already done so.
-func (r *chunkReader) Close() error <span class="cov8" title="1">{
+func (r *chunkReader) Close() error <span class="cov5" title="20">{
         // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov8" title="1">{ r.r = nil }</span>()
+        defer func() </span><span class="cov5" title="20">{ r.r = nil }</span>()
 
         // read all remaining chunks until we get to the end of the frame.
-        <span class="cov8" title="1">for </span><span class="cov8" title="1">{
-                if r.chunkLeft &lt;= 0 </span><span class="cov8" title="1">{
+        <span class="cov5" title="20">for </span><span class="cov5" title="20">{
+                if r.chunkLeft &lt;= 0 </span><span class="cov5" title="20">{
                         // readHeader return io.EOF when it encounter the end-of-frame
                         // marker ("\n##\n")
                         err := r.readHeader()
-                        switch err </span>{
-                        case nil:<span class="cov0" title="0">
+                        switch </span>{
+                        case err == nil:<span class="cov0" title="0">
                                 break</span>
-                        case io.EOF:<span class="cov0" title="0">
+                        case errors.Is(err, io.EOF):<span class="cov0" title="0">
                                 return nil</span>
-                        default:<span class="cov8" title="1">
+                        default:<span class="cov5" title="20">
                                 return err</span>
                         }
                 }
 
-                <span class="cov0" title="0">n, err := r.r.Discard(r.chunkLeft)
+                <span class="cov0" title="0">n, err := r.r.Discard(int(r.chunkLeft))
                 if err != nil </span><span class="cov0" title="0">{
                         return err
                 }</span>
-                <span class="cov0" title="0">r.chunkLeft -= n</span>
+                <span class="cov0" title="0">r.chunkLeft -= uint32(n)</span>
         }
 }
 
@@ -1579,25 +1600,25 @@ type chunkWriter struct {
         w *bufio.Writer
 }
 
-func (w *chunkWriter) Write(p []byte) (int, error) <span class="cov8" title="1">{
+func (w *chunkWriter) Write(p []byte) (int, error) <span class="cov1" title="2">{
         if w.w == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov8" title="1">if _, err := fmt.Fprintf(w.w, "\n#%d\n", len(p)); err != nil </span><span class="cov0" title="0">{
+        <span class="cov1" title="2">if _, err := fmt.Fprintf(w.w, "\n#%d\n", len(p)); err != nil </span><span class="cov0" title="0">{
                 return 0, err
         }</span>
 
-        <span class="cov8" title="1">return w.w.Write(p)</span>
+        <span class="cov1" title="2">return w.w.Write(p)</span>
 }
 
-func (w *chunkWriter) Close() error <span class="cov8" title="1">{
+func (w *chunkWriter) Close() error <span class="cov1" title="1">{
         // poison the writer to prevent writes after close
-        defer func() </span><span class="cov8" title="1">{ w.w = nil }</span>()
-        <span class="cov8" title="1">if _, err := w.w.Write(endOfChunks); err != nil </span><span class="cov0" title="0">{
+        defer func() </span><span class="cov1" title="1">{ w.w = nil }</span>()
+        <span class="cov1" title="1">if _, err := w.w.Write(endOfChunks); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
-        <span class="cov8" title="1">return w.w.Flush()</span>
+        <span class="cov1" title="1">return w.w.Flush()</span>
 }
 
 func (w *chunkWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
@@ -1608,96 +1629,96 @@ type eomReader struct {
         r *bufio.Reader
 }
 
-func (r *eomReader) Read(p []byte) (int, error) <span class="cov8" title="1">{
+func (r *eomReader) Read(p []byte) (int, error) <span class="cov3" title="7">{
         // This probably isn't optimal however it looks like xml.Decoder
         // mainly just called ReadByte() and this probably won't ever be
         // used.
-        for i := 0; i &lt; len(p); i++ </span><span class="cov8" title="1">{
+        for i := 0; i &lt; len(p); i++ </span><span class="cov8" title="310">{
                 b, err := r.ReadByte()
-                if err != nil </span><span class="cov8" title="1">{
+                if err != nil </span><span class="cov3" title="7">{
                         return i, err
                 }</span>
-                <span class="cov8" title="1">p[i] = b</span>
+                <span class="cov8" title="303">p[i] = b</span>
         }
         <span class="cov0" title="0">return len(p), nil</span>
 }
 
-func (r *eomReader) ReadByte() (byte, error) <span class="cov8" title="1">{
+func (r *eomReader) ReadByte() (byte, error) <span class="cov10" title="640">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov8" title="1">b, err := r.r.ReadByte()
-        if err != nil </span><span class="cov8" title="1">{
-                if err == io.EOF </span><span class="cov8" title="1">{
+        <span class="cov10" title="640">b, err := r.r.ReadByte()
+        if err != nil </span><span class="cov4" title="12">{
+                if err == io.EOF </span><span class="cov4" title="12">{
                         return b, io.ErrUnexpectedEOF
                 }</span>
                 <span class="cov0" title="0">return b, err</span>
         }
 
         // look for the end of the message marker
-        <span class="cov8" title="1">if b == endOfMsg[0] </span><span class="cov8" title="1">{
+        <span class="cov9" title="628">if b == endOfMsg[0] </span><span class="cov5" title="24">{
                 peeked, err := r.r.Peek(len(endOfMsg) - 1)
-                if err != nil </span><span class="cov8" title="1">{
-                        if err == io.EOF </span><span class="cov8" title="1">{
+                if err != nil </span><span class="cov2" title="4">{
+                        if err == io.EOF </span><span class="cov2" title="4">{
                                 return 0, io.ErrUnexpectedEOF
                         }</span>
                         <span class="cov0" title="0">return 0, err</span>
                 }
 
                 // check if we are at the end of the message
-                <span class="cov8" title="1">if bytes.Equal(peeked, endOfMsg[1:]) </span><span class="cov8" title="1">{
+                <span class="cov5" title="20">if bytes.Equal(peeked, endOfMsg[1:]) </span><span class="cov4" title="12">{
                         if _, err := r.r.Discard(len(endOfMsg) - 1); err != nil </span><span class="cov0" title="0">{
                                 return 0, err
                         }</span>
 
-                        <span class="cov8" title="1">return 0, io.EOF</span>
+                        <span class="cov4" title="12">return 0, io.EOF</span>
                 }
         }
 
-        <span class="cov8" title="1">return b, nil</span>
+        <span class="cov9" title="612">return b, nil</span>
 }
 
 // Close will read the rest of the frame and consume it including
 // the end-of-frame marker.
-func (r *eomReader) Close() error <span class="cov8" title="1">{
+func (r *eomReader) Close() error <span class="cov4" title="14">{
         // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov8" title="1">{ r.r = nil }</span>()
+        defer func() </span><span class="cov4" title="14">{ r.r = nil }</span>()
 
-        <span class="cov8" title="1">var err error
-        for err == nil </span><span class="cov8" title="1">{
+        <span class="cov4" title="14">var err error
+        for err == nil </span><span class="cov5" title="20">{
                 _, err = r.ReadByte()
-                if err == io.EOF </span><span class="cov8" title="1">{
+                if errors.Is(err, io.EOF) </span><span class="cov1" title="2">{
                         return nil
                 }</span>
         }
-        <span class="cov8" title="1">return err</span>
+        <span class="cov4" title="12">return err</span>
 }
 
 type eomWriter struct {
         w *bufio.Writer
 }
 
-func (w *eomWriter) Write(p []byte) (int, error) <span class="cov8" title="1">{
+func (w *eomWriter) Write(p []byte) (int, error) <span class="cov1" title="1">{
         if w.w == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
-        <span class="cov8" title="1">return w.w.Write(p)</span>
+        <span class="cov1" title="1">return w.w.Write(p)</span>
 }
 
-func (w *eomWriter) Close() error <span class="cov8" title="1">{
+func (w *eomWriter) Close() error <span class="cov1" title="1">{
         // poison the writer to prevent writes after close
-        defer func() </span><span class="cov8" title="1">{ w.w = nil }</span>()
+        defer func() </span><span class="cov1" title="1">{ w.w = nil }</span>()
 
-        <span class="cov8" title="1">if err := w.w.WriteByte('\n'); err != nil </span><span class="cov0" title="0">{
+        <span class="cov1" title="1">if err := w.w.WriteByte('\n'); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">if _, err := w.w.Write(endOfMsg); err != nil </span><span class="cov0" title="0">{
+        <span class="cov1" title="1">if _, err := w.w.Write(endOfMsg); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="1">return w.w.Flush()</span>
+        <span class="cov1" title="1">return w.w.Flush()</span>
 }
 
 func (w *eomWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
@@ -1711,12 +1732,12 @@ import (
         "io"
         "net"
 
-        "github.com/nemith/netconf/transport"
         "golang.org/x/crypto/ssh"
+        "nemith.io/netconf/transport"
 )
 
 // alias it to a private type so we can make it private when embedding
-type framer = transport.Framer //nolint:golint,unused
+type framer = transport.Framer
 
 // Transport implements RFC6242 for implementing NETCONF protocol over SSH.
 type Transport struct {
@@ -1760,7 +1781,7 @@ func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
                 case &lt;-ctx.Done():<span class="cov0" title="0">
                         // context is canceled so close the underlying connection.  Will
                         // will catch ctx.Err() later.
-                        conn.Close()</span>
+                        _ = conn.Close()</span> // nolint:errcheck // TODO: catch and log err
                 case &lt;-done:<span class="cov8" title="1"></span>
                 }
         }()
@@ -1844,6 +1865,53 @@ func (t *Transport) Close() error <span class="cov8" title="1">{
 
         <span class="cov8" title="1">return retErr</span>
 }
+</pre>
+		
+		<pre class="file" id="file6" style="display: none">package tls
+
+import (
+        "context"
+        "crypto/tls"
+        "net"
+
+        "nemith.io/netconf/transport"
+)
+
+// alias it to a private type so we can make it private when embedding
+type framer = transport.Framer
+
+// Transport implements RFC7589 for implementing NETCONF over TLS.
+type Transport struct {
+        conn *tls.Conn
+        *framer
+}
+
+// Dial will connect to a server via TLS and retuns a Transport.
+func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Transport, error) <span class="cov0" title="0">{
+        var d net.Dialer
+        conn, err := d.DialContext(ctx, network, addr)
+        if err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov0" title="0">tlsConn := tls.Client(conn, config)
+        return NewTransport(tlsConn), nil</span>
+
+}
+
+// NewTransport takes an already connected tls transport and returns a new
+// Transport.
+func NewTransport(conn *tls.Conn) *Transport <span class="cov0" title="0">{
+        return &amp;Transport{
+                conn:   conn,
+                framer: transport.NewFramer(conn, conn),
+        }
+}</span>
+
+// Close will close the transport and the underlying TLS connection.
+func (t *Transport) Close() error <span class="cov0" title="0">{
+        return t.conn.Close()
+}</span>
 </pre>
 		
 		</div>

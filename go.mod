@@ -1,4 +1,4 @@
-module github.com/nemith/netconf
+module nemith.io/netconf
 
 go 1.23.0
 

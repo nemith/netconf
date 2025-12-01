@@ -1,10 +1,10 @@
 # Go `netconf` client library
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/nemith/netconf.svg)](https://pkg.go.dev/github.com/nemith/netconf)
-[![Report Card](https://goreportcard.com/badge/github.com/nemith/netconf)](https://goreportcard.com/report/github.com/nemith/netconf)
+[![Go Reference](https://pkg.go.dev/badge/nemith.io/netconf.svg)](https://pkg.go.dev/nemith.io/netconf)
+[![Report Card](https://goreportcard.com/badge/nemith.io/netconf)](https://goreportcard.com/report/nemith.io/netconf)
 [![stability-unstable](https://img.shields.io/badge/stability-unstable-yellow.svg)](https://github.com/emersion/stability-badges#unstable)
-[![Validate](https://github.com/nemith/netconf/actions/workflows/validate.yaml/badge.svg?branch=main&event=push)](https://github.com/nemith/netconf/actions/workflows/validate.yaml)
-[![coverage](https://raw.githubusercontent.com/nemith/netconf/coverage/badge.svg)](http://htmlpreview.github.io/?https://github.com/nemith/netconf/blob/coverage/coverage.html)
+[![Validate](https://nemith.io/netconf/actions/workflows/validate.yaml/badge.svg?branch=main&event=push)](https://nemith.io/netconf/actions/workflows/validate.yaml)
+[![coverage](https://raw.githubusercontent.com/nemith/netconf/coverage/badge.svg)](http://htmlpreview.github.io/?https://nemith.io/netconf/blob/coverage/coverage.html)
 
 This library is used to create client applications for connecting to network devices via NETCONF.
 

@@ -339,7 +339,7 @@ func TestLock(t *testing.T) {
 		{
 			target: Candidate,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<lock>\S*<target>\S*<candidate/>\S*</target>\S*</lock>`),
+				regexp.MustCompile(`<lock xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">\S*<target>\S*<candidate/>\S*</target>\S*</lock>`),
 			},
 		},
 	}
@@ -373,7 +373,7 @@ func TestUnlock(t *testing.T) {
 		{
 			target: Candidate,
 			matches: []*regexp.Regexp{
-				regexp.MustCompile(`<unlock>\S*<target>\S*<candidate/>\S*</target>\S*</unlock>`),
+				regexp.MustCompile(`<unlock xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">\S*<target>\S*<candidate/>\S*</target>\S*</unlock>`),
 			},
 		},
 	}

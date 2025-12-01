@@ -322,7 +322,7 @@ type LockReq struct {
 
 func (s *Session) Lock(ctx context.Context, target Datastore) error {
 	req := LockReq{
-		XMLName: xml.Name{Local: "lock"},
+		XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "lock"},
 		Target:  target,
 	}
 
@@ -332,7 +332,7 @@ func (s *Session) Lock(ctx context.Context, target Datastore) error {
 
 func (s *Session) Unlock(ctx context.Context, target Datastore) error {
 	req := LockReq{
-		XMLName: xml.Name{Local: "unlock"},
+		XMLName: xml.Name{Space: "urn:ietf:params:xml:ns:netconf:base:1.0", Local: "unlock"},
 		Target:  target,
 	}
 

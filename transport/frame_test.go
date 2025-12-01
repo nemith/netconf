@@ -3,6 +3,7 @@ package transport
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 
@@ -97,13 +98,12 @@ func TestChunkReaderReadByte(t *testing.T) {
 			}
 			buf = buf[:n]
 
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				assert.Equal(t, tc.err, err)
 			}
 			assert.Equal(t, tc.want, buf)
 
-			// TODO: validate the return error
-			r.Close()
+			r.Close() //nolint:errcheck // TODO: validate the close error
 		})
 	}
 }
@@ -120,7 +120,7 @@ func TestChunkReaderRead(t *testing.T) {
 			assert.Equal(t, tc.want, got)
 
 			// TODO: validate the return error
-			r.Close()
+			r.Close() // nolint:errcheck // TODO: validate the close error
 		})
 	}
 }
@@ -159,7 +159,7 @@ func BenchmarkChunkedReadByte(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, _ = bc.r.ReadByte()
+				_, _ = bc.r.ReadByte() //nolint:errcheck
 				b.SetBytes(1)
 			}
 		})
@@ -266,14 +266,13 @@ func TestEOMReadByte(t *testing.T) {
 			}
 			buf = buf[:n]
 
-			if err != io.EOF {
+			if !errors.Is(err, io.EOF) {
 				assert.Equal(t, err, tc.err)
 			}
 
 			assert.Equal(t, tc.want, buf)
 
-			// TODO: validate the return error
-			r.Close()
+			r.Close() // nolint:errcheck // TODO: validate the close error
 		})
 	}
 }
@@ -287,8 +286,8 @@ func TestEOMRead(t *testing.T) {
 			got, err := io.ReadAll(r)
 			assert.Equal(t, err, tc.err)
 			assert.Equal(t, tc.want, got)
-			// TODO: validate the return error
-			r.Close()
+
+			r.Close() // nolint:errcheck // TODO: validate the close error
 		})
 	}
 }
@@ -334,7 +333,7 @@ func BenchmarkEOMReadByte(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
-				_, _ = bc.r.ReadByte()
+				_, _ = bc.r.ReadByte() // nolint:errcheck
 				b.SetBytes(1)
 			}
 		})

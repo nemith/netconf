@@ -55,13 +55,13 @@ func Example_tls() {
 	if err != nil {
 		panic(err)
 	}
-	defer transport.Close()
+	defer transport.Close() // nolint:errcheck
 
 	session, err := netconf.Open(transport)
 	if err != nil {
 		panic(err)
 	}
-	defer session.Close(context.Background())
+	defer session.Close(context.Background()) // nolint:errcheck
 
 	// timeout for the call itself.
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)

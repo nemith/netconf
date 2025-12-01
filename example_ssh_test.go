@@ -5,9 +5,9 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/crypto/ssh"
 	"nemith.io/netconf"
 	ncssh "nemith.io/netconf/transport/ssh"
-	"golang.org/x/crypto/ssh"
 )
 
 const sshAddr = "myrouter.example.com:830"
@@ -27,7 +27,7 @@ func Example_ssh() {
 	if err != nil {
 		panic(err)
 	}
-	defer transport.Close()
+	defer transport.Close() // nolint:errcheck
 
 	session, err := netconf.Open(transport)
 	if err != nil {

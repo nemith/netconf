@@ -17,7 +17,7 @@ args := '\
 	--exit-code-from inttest
 '
 
-all: csrx ceos confd netopeer2
+all: csrx ceos confd
 
 csrx:
 	#!/usr/bin/env bash

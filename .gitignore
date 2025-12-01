@@ -1,3 +1,5 @@
 .idea/
 confd-basic*.zip
 out
+cover.out
+*.test

@@ -6,12 +6,12 @@ import (
 	"io"
 	"net"
 
-	"nemith.io/netconf/transport"
 	"golang.org/x/crypto/ssh"
+	"nemith.io/netconf/transport"
 )
 
 // alias it to a private type so we can make it private when embedding
-type framer = transport.Framer //nolint:golint,unused
+type framer = transport.Framer
 
 // Transport implements RFC6242 for implementing NETCONF protocol over SSH.
 type Transport struct {
@@ -55,7 +55,7 @@ func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
 		case <-ctx.Done():
 			// context is canceled so close the underlying connection.  Will
 			// will catch ctx.Err() later.
-			conn.Close()
+			_ = conn.Close() // nolint:errcheck // TODO: catch and log err
 		case <-done:
 		}
 	}()

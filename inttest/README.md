@@ -88,6 +88,6 @@ CONFD_IMAGE=conf-basic:7.8 just ceos
 Netopeer2 is an opensource NETCONF server.  A docker image is automaticall built when running the tests so no additional work is needed.
 
 ```plain
-cd inttent
+cd inttest
 just netopeer2
 ```

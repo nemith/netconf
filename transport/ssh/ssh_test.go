@@ -80,7 +80,8 @@ func newTestServer(t *testing.T, handlerFn func(*testing.T, ssh.Channel, <-chan 
 
 		for newChannel := range chans {
 			if newChannel.ChannelType() != "session" {
-				_ = newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+				err := newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
+				assert.NoError(t, err)
 				continue
 			}
 
@@ -110,11 +111,15 @@ func TestTransport(t *testing.T) {
 				if req.Type != "subsystem" || !bytes.Equal(req.Payload[4:], []byte("netconf")) {
 					panic(fmt.Sprintf("unknown ssh request: %q: %q", req.Type, req.Payload))
 				}
-				_ = req.Reply(true, nil)
+				err := req.Reply(true, nil)
+				assert.NoError(t, err)
 			}
 		}()
-		_, _ = io.WriteString(ch, "muffins]]>]]>")
-		_, _ = io.Copy(&srvIn, ch)
+		_, err := io.WriteString(ch, "muffins]]>]]>")
+		require.NoError(t, err)
+
+		_, err = io.Copy(&srvIn, ch)
+		require.NoError(t, err)
 		close(srvDone)
 	})
 	require.NoError(t, err)
@@ -137,7 +142,8 @@ func TestTransport(t *testing.T) {
 	assert.NoError(t, err)
 
 	out := "a man a plan a canal panama"
-	_, _ = io.WriteString(w, out)
+	_, err = io.WriteString(w, out)
+	assert.NoError(t, err)
 
 	err = w.Close()
 	assert.NoError(t, err)

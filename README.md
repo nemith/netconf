@@ -8,7 +8,7 @@
 
 This library is used to create client applications for connecting to network devices via NETCONF.
 
-Like Go itself, only the latest two Go versions are tested and supported (Go 1.24 or Go 1.23).
+Like Go itself, only the latest two Go versions are tested and supported (Go 1.24 or Go 1.26).
 
 NOTICE: The API is pretty stable but not finalized yet. So changes may happen before a 1.0 release. Check for API changes when you upgrade.
 

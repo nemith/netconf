@@ -219,7 +219,9 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 		return 0, ErrInvalidIO
 	}
 	// make sure we can't try to read more than the max chunk
-	p = p[:maxChunk]
+	if len(p) > maxChunk {
+		p = p[:maxChunk]
+	}
 
 	// done with existing chunk so grab the next one
 	if r.chunkLeft <= 0 {
@@ -271,10 +273,10 @@ func (r *chunkReader) Close() error {
 			// readHeader return io.EOF when it encounter the end-of-frame
 			// marker ("\n##\n")
 			err := r.readHeader()
-			switch err {
-			case nil:
+			switch {
+			case err == nil:
 				break
-			case io.EOF:
+			case errors.Is(err, io.EOF):
 				return nil
 			default:
 				return err
@@ -381,7 +383,7 @@ func (r *eomReader) Close() error {
 	var err error
 	for err == nil {
 		_, err = r.ReadByte()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			return nil
 		}
 	}

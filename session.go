@@ -94,7 +94,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 
 	// this needs a timeout of some sort.
 	if err := s.handshake(); err != nil {
-		s.tr.Close()
+		s.tr.Close() // nolint:errcheck // TODO: catch and log err
 		return nil, err
 	}
 
@@ -115,8 +115,7 @@ func (s *Session) handshake() error {
 	if err != nil {
 		return err
 	}
-	// TODO: capture this error some how (ah defer and errors)
-	defer r.Close()
+	defer r.Close() // nolint:errcheck // TODO: catch and log err
 
 	var serverMsg helloMsg
 	if err := xml.NewDecoder(r).Decode(&serverMsg); err != nil {
@@ -188,7 +187,7 @@ func (s *Session) recvMsg() error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer r.Close() // nolint:errcheck // TODO: catch error and log
 	dec := xml.NewDecoder(r)
 
 	root, err := startElement(dec)
@@ -379,7 +378,7 @@ func (s *Session) Close(ctx context.Context) error {
 		}
 	}
 
-	if callErr != io.EOF {
+	if !errors.Is(callErr, io.EOF) {
 		return callErr
 	}
 

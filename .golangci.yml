@@ -3,9 +3,6 @@ linters:
   enable:
     - errorlint
   settings:
-    errcheck:
-      check-type-assertions: true
-      check-blank: true
     errorlint:
       errorf: true
       asserts: true

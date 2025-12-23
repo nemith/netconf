@@ -251,17 +251,7 @@ func TestUnmarshalRPCReply(t *testing.T) {
 `),
 					},
 				},
-				Body: []byte(`
-<rpc-error>
-<error-type>protocol</error-type>
-<error-tag>operation-failed</error-tag>
-<error-severity>error</error-severity>
-<error-message>syntax error, expecting &lt;candidate/&gt; or &lt;running/&gt;</error-message>
-<error-info>
-<bad-element>non-exist</bad-element>
-</error-info>
-</rpc-error>
-`),
+				Body: replyJunosGetConfigError,
 			},
 		},
 	}
@@ -271,6 +261,7 @@ func TestUnmarshalRPCReply(t *testing.T) {
 			var got Reply
 			err := xml.Unmarshal(tc.reply, &got)
 			assert.NoError(t, err)
+			got.Body = tc.reply // xml.Unmarshal doesn't populate xml:"-" fields
 			assert.Equal(t, tc.want, got)
 		})
 	}

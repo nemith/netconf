@@ -1,15 +1,20 @@
 package netconf
 
+import "iter"
+
 const (
 	baseCap      = "urn:ietf:params:netconf:base"
 	stdCapPrefix = "urn:ietf:params:netconf:capability"
+
+	CapNetConfig10 = baseCap + ":1.0"
+	CapNetConfig11 = baseCap + ":1.1"
 )
 
 // DefaultCapabilities are the capabilities sent by the client during the hello
 // exchange by the server.
 var DefaultCapabilities = []string{
-	"urn:ietf:params:netconf:base:1.0",
-	"urn:ietf:params:netconf:base:1.1",
+	CapNetConfig10,
+	CapNetConfig11,
 
 	// XXX: these seems like server capabilities and i don't see why
 	// a client would need to send them
@@ -43,26 +48,26 @@ func ExpandCapability(s string) string {
 
 // XXX: may want to expose this type publicly in the future when the api has
 // stabilized?
-type capabilitySet struct {
+type CapabilitySet struct {
 	caps map[string]struct{}
 }
 
-func newCapabilitySet(capabilities ...string) capabilitySet {
-	cs := capabilitySet{
+func NewCapabilitySet(capabilities ...string) CapabilitySet {
+	cs := CapabilitySet{
 		caps: make(map[string]struct{}),
 	}
 	cs.Add(capabilities...)
 	return cs
 }
 
-func (cs *capabilitySet) Add(capabilities ...string) {
+func (cs *CapabilitySet) Add(capabilities ...string) {
 	for _, cap := range capabilities {
 		cap = ExpandCapability(cap)
 		cs.caps[cap] = struct{}{}
 	}
 }
 
-func (cs capabilitySet) Has(s string) bool {
+func (cs CapabilitySet) Has(s string) bool {
 	// XXX: need to figure out how to handle versions (i.e always map to 1.0 or
 	// map to latest/any?)
 	s = ExpandCapability(s)
@@ -70,10 +75,23 @@ func (cs capabilitySet) Has(s string) bool {
 	return ok
 }
 
-func (cs capabilitySet) All() []string {
-	out := make([]string, 0, len(cs.caps))
-	for cap := range cs.caps {
-		out = append(out, cap)
+func (cs CapabilitySet) Remove(capabilities ...string) {
+	for _, cap := range capabilities {
+		cap = ExpandCapability(cap)
+		delete(cs.caps, cap)
 	}
-	return out
+}
+
+func (cs CapabilitySet) All() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for cap := range cs.caps {
+			if !yield(cap) {
+				return
+			}
+		}
+	}
+}
+
+func (cs CapabilitySet) Len() int {
+	return len(cs.caps)
 }

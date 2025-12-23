@@ -17,7 +17,6 @@ type Transport struct {
 	*framer
 }
 
-// Dial will connect to a server via TLS and retuns a Transport.
 func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Transport, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, network, addr)
@@ -26,8 +25,13 @@ func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Trans
 	}
 
 	tlsConn := tls.Client(conn, config)
-	return NewTransport(tlsConn), nil
 
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		conn.Close()
+		return nil, err
+	}
+
+	return NewTransport(tlsConn), nil
 }
 
 // NewTransport takes an already connected tls transport and returns a new

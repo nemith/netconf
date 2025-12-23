@@ -66,7 +66,6 @@ func (s *testServer) transport() *testTransport { return newTestTransport(s.hand
 type testTransport struct {
 	handler func(r io.ReadCloser, w io.WriteCloser)
 	out     chan io.ReadCloser
-	// msgReceived, msgSent int
 }
 
 func newTestTransport(handler func(r io.ReadCloser, w io.WriteCloser)) *testTransport {

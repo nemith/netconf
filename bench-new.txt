@@ -1,0 +1,16 @@
+goos: darwin
+goarch: arm64
+pkg: nemith.io/netconf/transport
+cpu: Apple M4 Max
+BenchmarkChunkedRead/Small_200B-16         	26093220	        46.79 ns/op	4487.77 MB/s	       0 B/op	       0 allocs/op
+BenchmarkChunkedRead/Medium_128KB-16       	  329698	      3552 ns/op	36963.26 MB/s	       0 B/op	       0 allocs/op
+BenchmarkChunkedRead/Large_10MB-16         	    3508	    319518 ns/op	32873.55 MB/s	       3 B/op	       0 allocs/op
+BenchmarkChunkedReadByte/Small_200B-16     	 2617726	       450.6 ns/op	 466.07 MB/s	       0 B/op	       0 allocs/op
+BenchmarkChunkedReadByte/Medium_128KB-16   	    3775	    266903 ns/op	 491.94 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMarkedRead/Small_200B-16          	 2690090	       466.2 ns/op	 441.91 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMarkedRead/Medium_128KB-16        	    4244	    281886 ns/op	 465.00 MB/s	       2 B/op	       0 allocs/op
+BenchmarkMarkedRead/Large_10MB-16          	      54	  22035080 ns/op	 475.87 MB/s	     194 B/op	       0 allocs/op
+BenchmarkMarkedReadByte/Small_200B-16      	 2808396	       433.1 ns/op	 475.61 MB/s	       0 B/op	       0 allocs/op
+BenchmarkMarkedReadByte/Medium_128KB-16    	    4557	    271011 ns/op	 483.66 MB/s	       0 B/op	       0 allocs/op
+PASS
+ok  	nemith.io/netconf/transport	13.780s

@@ -1,19 +1,24 @@
 package netconf
 
+import (
+	"iter"
+)
+
 const (
 	baseCap      = "urn:ietf:params:netconf:base"
 	stdCapPrefix = "urn:ietf:params:netconf:capability"
+
+	CapNetConf10 = baseCap + ":1.0"
+	CapNetConf11 = baseCap + ":1.1"
 )
 
 // DefaultCapabilities are the capabilities sent by the client during the hello
 // exchange by the server.
 var DefaultCapabilities = []string{
-	"urn:ietf:params:netconf:base:1.0",
-	"urn:ietf:params:netconf:base:1.1",
-
+	CapNetConf10,
+	CapNetConf11,
 	// XXX: these seems like server capabilities and i don't see why
 	// a client would need to send them
-
 	// "urn:ietf:params:netconf:capability:writable-running:1.0",
 	// "urn:ietf:params:netconf:capability:candidate:1.0",
 	// "urn:ietf:params:netconf:capability:confirmed-commit:1.0",
@@ -41,39 +46,44 @@ func ExpandCapability(s string) string {
 	return stdCapPrefix + s
 }
 
-// XXX: may want to expose this type publicly in the future when the api has
-// stabilized?
-type capabilitySet struct {
+type CapabilitySet struct {
 	caps map[string]struct{}
 }
 
-func newCapabilitySet(capabilities ...string) capabilitySet {
-	cs := capabilitySet{
+// NewCapabilitySet creates a new CapabilitySet and adds any provided
+// capabilities.
+func NewCapabilitySet(capabilities ...string) CapabilitySet {
+	cs := CapabilitySet{
 		caps: make(map[string]struct{}),
 	}
-	cs.Add(capabilities...)
-	return cs
-}
-
-func (cs *capabilitySet) Add(capabilities ...string) {
 	for _, cap := range capabilities {
 		cap = ExpandCapability(cap)
 		cs.caps[cap] = struct{}{}
 	}
+	return cs
 }
 
-func (cs capabilitySet) Has(s string) bool {
-	// XXX: need to figure out how to handle versions (i.e always map to 1.0 or
-	// map to latest/any?)
+// Len returns the number of capabilities in the set.
+func (cs CapabilitySet) Len() int {
+	return len(cs.caps)
+}
+
+// All returns an iterator over all capabilities in the set.  If you want a
+// slice use `slices.Collect(cs.All())`.
+func (cs CapabilitySet) All() iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for cap := range cs.caps {
+			if !yield(cap) {
+				return
+			}
+		}
+	}
+}
+
+// Has will return true if the capability is present in the set.  The given
+// capability is expanded with `ExpandCapability` if needed.
+func (cs CapabilitySet) Has(s string) bool {
 	s = ExpandCapability(s)
 	_, ok := cs.caps[s]
 	return ok
-}
-
-func (cs capabilitySet) All() []string {
-	out := make([]string, 0, len(cs.caps))
-	for cap := range cs.caps {
-		out = append(out, cap)
-	}
-	return out
 }

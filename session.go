@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -18,7 +19,7 @@ import (
 var ErrClosed = errors.New("closed connection")
 
 type sessionConfig struct {
-	capabilities        []string
+	clientCaps          []string
 	notificationHandler NotificationHandler
 }
 
@@ -29,9 +30,7 @@ type SessionOption interface {
 type capabilityOpt []string
 
 func (o capabilityOpt) apply(cfg *sessionConfig) {
-	for _, cap := range o {
-		cfg.capabilities = append(cfg.capabilities, cap)
-	}
+	cfg.clientCaps = []string(o)
 }
 
 func WithCapability(capabilities ...string) SessionOption {
@@ -54,8 +53,8 @@ type Session struct {
 	sessionID uint64
 	seq       atomic.Uint64
 
-	clientCaps          capabilitySet
-	serverCaps          capabilitySet
+	clientCaps          CapabilitySet
+	serverCaps          CapabilitySet
 	notificationHandler NotificationHandler
 
 	mu      sync.Mutex
@@ -71,7 +70,7 @@ type NotificationHandler func(msg Notification)
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	cfg := sessionConfig{
-		capabilities: DefaultCapabilities,
+		clientCaps: DefaultCapabilities,
 	}
 
 	for _, opt := range opts {
@@ -80,7 +79,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 
 	s := &Session{
 		tr:                  transport,
-		clientCaps:          newCapabilitySet(cfg.capabilities...),
+		clientCaps:          NewCapabilitySet(cfg.clientCaps...),
 		reqs:                make(map[uint64]*req),
 		notificationHandler: cfg.notificationHandler,
 	}
@@ -105,7 +104,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 // handshake exchanges handshake messages and reports if there are any errors.
 func (s *Session) handshake() error {
 	clientMsg := helloMsg{
-		Capabilities: s.clientCaps.All(),
+		Capabilities: slices.Collect(s.clientCaps.All()),
 	}
 	if err := s.writeMsg(&clientMsg); err != nil {
 		return fmt.Errorf("failed to write hello message: %w", err)
@@ -130,7 +129,7 @@ func (s *Session) handshake() error {
 		return fmt.Errorf("server did not return any capabilities")
 	}
 
-	s.serverCaps = newCapabilitySet(serverMsg.Capabilities...)
+	s.serverCaps = NewCapabilitySet(serverMsg.Capabilities...)
 	s.sessionID = serverMsg.SessionID
 
 	// upgrade the transport if we are on a larger version and the transport
@@ -151,15 +150,15 @@ func (s *Session) SessionID() uint64 {
 	return s.sessionID
 }
 
-// ClientCapabilities will return the capabilities initialized with the session.
-func (s *Session) ClientCapabilities() []string {
-	return s.clientCaps.All()
+// ClientCaps will return the capabilities initialized with the session.
+func (s *Session) ClientCaps() *CapabilitySet {
+	return &s.clientCaps
 }
 
-// ServerCapabilities will return the capabilities returned by the server in
+// ServerCaps will return the capabilities returned by the server in
 // it's hello message.
-func (s *Session) ServerCapabilities() []string {
-	return s.serverCaps.All()
+func (s *Session) ServerCaps() *CapabilitySet {
+	return &s.serverCaps
 }
 
 // startElement will walk though a xml.Decode until it finds a start element

@@ -7,6 +7,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 	"nemith.io/netconf"
+	"nemith.io/netconf/rpc"
 	ncssh "nemith.io/netconf/transport/ssh"
 )
 
@@ -37,7 +38,7 @@ func Example_ssh() {
 	// timeout for the call itself.
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	deviceConfig, err := session.GetConfig(ctx, "running")
+	deviceConfig, err := rpc.GetConfig{Source: rpc.Running}.Exec(ctx, session)
 	if err != nil {
 		log.Fatalf("failed to get config: %v", err)
 	}

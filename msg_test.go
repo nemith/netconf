@@ -65,12 +65,12 @@ func TestRawXMLMarshal(t *testing.T) {
 var helloMsgTestTable = []struct {
 	name string
 	raw  []byte
-	msg  helloMsg
+	msg  HelloMsg
 }{
 	{
 		name: "basic",
 		raw:  []byte(`<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><capabilities><capability>urn:ietf:params:netconf:base:1.0</capability><capability>urn:ietf:params:netconf:base:1.1</capability></capabilities></hello>`),
-		msg: helloMsg{
+		msg: HelloMsg{
 			XMLName: xml.Name{
 				Local: "hello",
 				Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
@@ -100,7 +100,7 @@ var helloMsgTestTable = []struct {
   </capabilities>
   <session-id>410</session-id>
 </hello>`),
-		msg: helloMsg{
+		msg: HelloMsg{
 			XMLName: xml.Name{
 				Local: "hello",
 				Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
@@ -127,7 +127,7 @@ var helloMsgTestTable = []struct {
 func TestUnmarshalHelloMsg(t *testing.T) {
 	for _, tc := range helloMsgTestTable {
 		t.Run(tc.name, func(t *testing.T) {
-			var got helloMsg
+			var got HelloMsg
 			err := xml.Unmarshal(tc.raw, &got)
 			assert.NoError(t, err)
 			assert.Equal(t, got, tc.msg)
@@ -152,11 +152,6 @@ func TestMarshalRPCMsg(t *testing.T) {
 		want      []byte
 	}{
 		{
-			name:      "nil",
-			operation: nil,
-			err:       true,
-		},
-		{
 			name:      "string",
 			operation: "<foo><bar/></foo>",
 			want:      []byte(`<rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><foo><bar/></foo></rpc>`),
@@ -165,11 +160,6 @@ func TestMarshalRPCMsg(t *testing.T) {
 			name:      "byteslice",
 			operation: []byte("<baz><qux/></baz>"),
 			want:      []byte(`<rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><baz><qux/></baz></rpc>`),
-		},
-		{
-			name:      "validate",
-			operation: ValidateReq{Source: Running},
-			want:      []byte(`<rpc xmlns="urn:ietf:params:xml:ns:netconf:base:1.0" message-id="1"><validate><source><running/></source></validate></rpc>`),
 		},
 		{
 			name: "namedStruct",
@@ -194,8 +184,8 @@ func TestMarshalRPCMsg(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := xml.Marshal(&request{
-				MessageID: 1,
+			out, err := xml.Marshal(&RPC{
+				MessageID: "1",
 				Operation: tc.operation,
 			})
 			t.Logf("out: %s", out)
@@ -229,46 +219,33 @@ func TestUnmarshalRPCReply(t *testing.T) {
 	tt := []struct {
 		name  string
 		reply []byte
-		want  Reply
+		want  any
 	}{
 		{
 			name:  "error",
 			reply: replyJunosGetConfigError,
-			want: Reply{
+			want: RPCReply{
 				XMLName: xml.Name{
-					Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
 					Local: "rpc-reply",
+					Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
 				},
-				MessageID: 1,
-				Errors: []RPCError{
+				MessageID: "1",
+				RPCErrors: []RPCError{
 					{
 						Type:     ErrTypeProtocol,
 						Tag:      ErrOperationFailed,
 						Severity: SevError,
 						Message:  "syntax error, expecting <candidate/> or <running/>",
-						Info: []byte(`
-<bad-element>non-exist</bad-element>
-`),
+						Info:     []byte("\n<bad-element>non-exist</bad-element>\n"),
 					},
 				},
-				Body: []byte(`
-<rpc-error>
-<error-type>protocol</error-type>
-<error-tag>operation-failed</error-tag>
-<error-severity>error</error-severity>
-<error-message>syntax error, expecting &lt;candidate/&gt; or &lt;running/&gt;</error-message>
-<error-info>
-<bad-element>non-exist</bad-element>
-</error-info>
-</rpc-error>
-`),
 			},
 		},
 	}
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			var got Reply
+			var got RPCReply
 			err := xml.Unmarshal(tc.reply, &got)
 			assert.NoError(t, err)
 			assert.Equal(t, tc.want, got)

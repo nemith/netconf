@@ -2,131 +2,39 @@ package netconf
 
 import (
 	"encoding/xml"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"time"
 )
 
-// RawXML captures the raw xml for the given element.  Used to process certain
-// elements later.
-type RawXML []byte
+// RPC maps the xml value of <rpc> in RFC6241
+type RPC struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
 
-func (x *RawXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	var inner struct {
-		Data []byte `xml:",innerxml"`
-	}
+	// Managed by the session.  Will be overwritten when sent on the wire.
+	MessageID string `xml:"message-id,attr"`
 
-	if err := d.DecodeElement(&inner, &start); err != nil {
-		return err
-	}
+	// User-defined attributes (e.g. xmlns:ex="...").  Per RFC6241 sec 7.3, these
+	// must be preserved and reflected in the associated <rpc-reply>.
+	Attributes []xml.Attr `xml:",attr"`
 
-	*x = inner.Data
-	return nil
+	// The inner XML of the RPC message (e.g. <get-config>, <edit-config>)
+	Operation any `xml:",innerxml"` // The operation payload (e.g. <get-config>)
 }
 
-// MarshalXML implements xml.Marshaller.  Raw XML is passed verbatim, errors and
-// all.
-func (x *RawXML) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	inner := struct {
-		Data []byte `xml:",innerxml"`
-	}{
-		Data: []byte(*x),
-	}
-	return e.EncodeElement(&inner, start)
-}
+type RPCReply struct {
+	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
 
-// helloMsg maps the xml value of the <hello> message in RFC6241
-type helloMsg struct {
-	XMLName      xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 hello"`
-	SessionID    uint64   `xml:"session-id,omitempty"`
-	Capabilities []string `xml:"capabilities>capability"`
-}
+	// The message-id must match that of the associated <rpc>
+	MessageID string `xml:"message-id,attr"`
 
-// request maps the xml value of <rpc> in RFC6241
-type request struct {
-	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc"`
-	MessageID uint64   `xml:"message-id,attr"`
-	Operation any      `xml:",innerxml"`
-}
+	// Additional attributes on the <rpc-reply>.
+	Attributes []xml.Attr `xml:",attr"`
 
-func (msg *request) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
-	if msg.Operation == nil {
-		return fmt.Errorf("operation cannot be nil")
-	}
-
-	// TODO: validate operation is named?
-
-	// alias the type to not cause recursion calling e.Encode
-	type rpcMsg request
-	inner := rpcMsg(*msg)
-	return e.Encode(&inner)
-}
-
-// Reply maps the xml value of <rpc-reply> in RFC6241
-type Reply struct {
-	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
-	MessageID uint64    `xml:"message-id,attr"`
-	Errors    RPCErrors `xml:"rpc-error,omitempty"`
-	Body      []byte    `xml:",innerxml"`
-}
-
-// Decode will decode the body of a reply into a value pointed to by v.  This is
-// a simple wrapper around xml.Unmarshal.
-func (r Reply) Decode(v interface{}) error {
-	return xml.Unmarshal(r.Body, v)
-}
-
-// Err will return go error(s) from a Reply that are of the given severities. If
-// no severity is given then it defaults to `ErrSevError`.
-//
-// If one error is present then the underlyign type is `RPCError`. If more than
-// one error exists than the underlying type is `[]RPCError`
-//
-// Example
-
-// get all errors with severity of error
-//
-//	if err := reply.Err(ErrSevError); err != nil { /* ... */ }
-//
-// or
-//
-//	if err := reply.Err(); err != nil { /* ... */ }
-//
-// get all errors with severity of only warning
-//
-//	if err := reply.Err(ErrSevWarning); err != nil { /* ... */ }
-//
-// get all errors
-//
-//	if err := reply.Err(ErrSevWarning, ErrSevError); err != nil { /* ... */ }
-func (r Reply) Err(severity ...ErrSeverity) error {
-	// fast escape for no errors
-	if len(r.Errors) == 0 {
-		return nil
-	}
-
-	errs := r.Errors.Filter(severity...)
-	switch len(errs) {
-	case 0:
-		return nil
-	case 1:
-		return errs[0]
-	default:
-		return errs
-	}
-}
-
-type Notification struct {
-	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
-	EventTime time.Time `xml:"eventTime"`
-	Body      []byte    `xml:",innerxml"`
-}
-
-// Decode will decode the body of a noticiation into a value pointed to by v.
-// This is a simple wrapper around xml.Unmarshal.
-func (r Notification) Decode(v interface{}) error {
-	return xml.Unmarshal(r.Body, v)
+	RPCErrors RPCErrors `xml:"rpc-error,omitempty"`
 }
 
 type ErrSeverity string
@@ -206,7 +114,16 @@ func (errs RPCErrors) Filter(severity ...ErrSeverity) RPCErrors {
 }
 
 func (errs RPCErrors) Error() string {
+	if len(errs) == 0 {
+		return ""
+	}
+
+	if len(errs) == 1 {
+		return errs[0].Error()
+	}
+
 	var sb strings.Builder
+	sb.WriteString("multiple netconf errors:\n")
 	for i, err := range errs {
 		if i > 0 {
 			sb.WriteRune('\n')
@@ -216,10 +133,94 @@ func (errs RPCErrors) Error() string {
 	return sb.String()
 }
 
-func (errs RPCErrors) Unwrap() []error {
-	boxedErrs := make([]error, len(errs))
-	for i, err := range errs {
-		boxedErrs[i] = err
+func (errs RPCErrors) Unwrap() error {
+	if len(errs) == 0 {
+		return nil
 	}
-	return boxedErrs
+	if len(errs) == 1 {
+		return errs[0]
+	}
+
+	unboxedErrs := make([]error, len(errs))
+	for i, err := range errs {
+		unboxedErrs[i] = err
+	}
+	return errors.Join(unboxedErrs...)
+}
+
+type Notification struct {
+	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
+	EventTime time.Time `xml:"eventTime"`
+}
+
+// HelloMsg maps the xml value of the <hello> message in RFC6241
+type HelloMsg struct {
+	XMLName      xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 hello"`
+	SessionID    uint64   `xml:"session-id,omitempty"`
+	Capabilities []string `xml:"capabilities>capability"`
+}
+
+type Request struct {
+	RPC RPC
+}
+
+func NewRequest(op any) *Request {
+	return &Request{
+		RPC: RPC{
+			Operation: op,
+		},
+	}
+}
+
+type Response struct {
+	io.ReadCloser
+
+	MessageID  string     // Captured from the message-id attribute
+	Attributes []xml.Attr // Any other attributes on the envelope
+}
+
+// Decode will decode the response XML into the provided value v and then close
+// the message releasing the session to process new messages.
+func (d *Response) Decode(v any) (err error) {
+	defer func() {
+		err = errors.Join(err, d.Close())
+	}()
+
+	if err := xml.NewDecoder(d).Decode(v); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return err
+}
+
+func (d *Response) Close() error {
+	if d.ReadCloser == nil {
+		return nil
+	}
+	return d.ReadCloser.Close()
+}
+
+// RawXML is a helper type for getting innerxml content as a byte slice.
+type RawXML []byte
+
+func (x *RawXML) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	var inner struct {
+		Data []byte `xml:",innerxml"`
+	}
+
+	if err := d.DecodeElement(&inner, &start); err != nil {
+		return err
+	}
+
+	*x = inner.Data
+	return nil
+}
+
+func (x RawXML) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	inner := struct {
+		Data []byte `xml:",innerxml"`
+	}{
+		Data: []byte(x),
+	}
+	return e.EncodeElement(&inner, start)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"nemith.io/netconf"
+	"nemith.io/netconf/rpc"
 	ncssh "nemith.io/netconf/transport/ssh"
 )
 
@@ -79,8 +80,8 @@ func setupSSH(t *testing.T) *netconf.Session {
 	require.NoErrorf(t, err, "failed to connect to dut %q", addr)
 
 	// capture the framed communication
-	inCap := newLogWriter("<<<", t)
-	outCap := newLogWriter(">>>", t)
+	inCap := newLogWriter("S: ", t)
+	outCap := newLogWriter("C: ", t)
 
 	tr.DebugCapture(inCap, outCap)
 
@@ -101,7 +102,7 @@ func TestSSHGetConfig(t *testing.T) {
 	session := setupSSH(t)
 
 	ctx := context.Background()
-	config, err := session.GetConfig(ctx, "running")
+	config, err := rpc.GetConfig{Source: rpc.Running}.Exec(ctx, session)
 	assert.NoError(t, err)
 	t.Logf("configuration: %s", config)
 
@@ -114,7 +115,7 @@ func TestBadGetConfig(t *testing.T) {
 	session := setupSSH(t)
 
 	ctx := context.Background()
-	cfg, err := session.GetConfig(ctx, "non-exist")
+	cfg, err := rpc.GetConfig{Source: "non-exist"}.Exec(ctx, session)
 	assert.Nil(t, cfg)
 	var rpcErr netconf.RPCError
 	assert.ErrorAs(t, err, &rpcErr)
@@ -131,8 +132,13 @@ func TestJunosCommand(t *testing.T) {
 		Command: "show version",
 	}
 
+	var reply struct {
+		netconf.RPCReply
+		Result string `xml:"command-output>result"`
+	}
+
 	ctx := context.Background()
-	reply, err := session.Do(ctx, &cmd)
+	err := session.Exec(ctx, &cmd, &reply)
 	assert.NoError(t, err)
-	assert.NoError(t, reply.Err())
+	assert.Empty(t, reply.RPCErrors)
 }

@@ -154,6 +154,6 @@ func TestTransport(t *testing.T) {
 	// wait for the server to close
 	<-srvDone
 
-	want := out + "\n]]>]]>"
+	want := out + "]]>]]>"
 	assert.Equal(t, want, srvIn.String())
 }

@@ -7,27 +7,13 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"path/filepath"
-	"time"
+	"sync"
 )
 
-// ErrMalformedChunk represents a message that invalid as defined in the chunk
-// framing in RFC6242
-var ErrMalformedChunk = errors.New("netconf: invalid chunk")
-
-type frameReader interface {
-	io.ReadCloser
-	io.ByteReader
-}
-
-type frameWriter interface {
-	io.WriteCloser
-	isClosed() bool
-}
+var ErrStreamBusy = errors.New("transport: stream is already active")
 
 // Framer is a wrapper used for transports that implement the framing defined in
-// RFC6242.  This supports End-of-Message and Chucked framing methods and
+// RFC6242.  This supports End-of-Message and Chunked framing methods and
 // will move from End-of-Message to Chunked framing after the `Upgrade` method
 // has been called.
 //
@@ -40,45 +26,20 @@ type Framer struct {
 	br *bufio.Reader
 	bw *bufio.Writer
 
-	curReader frameReader
-	curWriter frameWriter
-
-	upgraded bool
+	mu           sync.Mutex
+	chunkFraming bool
+	activeReader bool
+	activeWriter bool
 }
 
 // NewFramer return a new Framer to be used against the given io.Reader and io.Writer.
 func NewFramer(r io.Reader, w io.Writer) *Framer {
-	f := &Framer{
+	return &Framer{
 		r:  r,
 		w:  w,
 		br: bufio.NewReader(r),
 		bw: bufio.NewWriter(w),
 	}
-
-	capDir := os.Getenv("GONETCONF_FRAMED_CAPDIR")
-	if capDir != "" {
-		if err := os.MkdirAll(capDir, 0o755); err != nil {
-			panic(fmt.Sprintf("GO_NETCONF_FRAMER: failed to create capture output dir: %v", err))
-		}
-
-		ts := time.Now().Format(time.RFC3339)
-
-		inFilename := filepath.Join(capDir, ts+".in")
-		inf, err := os.Create(inFilename)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))
-		}
-
-		outFilename := filepath.Join(capDir, ts+".out")
-		outf, err := os.Create(outFilename)
-		if err != nil {
-			panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))
-		}
-
-		f.DebugCapture(inf, outf)
-	}
-
-	return f
 }
 
 // DebugCapture will copy all *framed* input/output to the the given
@@ -87,170 +48,225 @@ func NewFramer(r io.Reader, w io.Writer) *Framer {
 // for debugging.
 //
 // This needs to be called before `MsgReader` or `MsgWriter`.
-func (f *Framer) DebugCapture(in io.Writer, out io.Writer) {
-	// XXX: should there be a sentinel flag to indicate write/read has been done already?
-	if f.curReader != nil ||
-		f.curWriter != nil ||
+func (f *Framer) DebugCapture(input, output io.Writer) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.activeReader ||
+		f.activeWriter ||
 		f.bw.Buffered() > 0 ||
 		f.br.Buffered() > 0 {
 		panic("debug capture added with active reader or writer")
 	}
 
-	if out != nil {
-		f.w = io.MultiWriter(f.w, out)
-		f.bw = bufio.NewWriter(f.w)
+	if input != nil {
+		f.br = bufio.NewReader(io.TeeReader(f.r, input))
 	}
 
-	if in != nil {
-		f.r = io.TeeReader(f.r, in)
-		f.br = bufio.NewReader(f.r)
+	if output != nil {
+		f.bw = bufio.NewWriter(io.MultiWriter(f.w, output))
 	}
 }
 
 // Upgrade will cause the Framer to switch from End-of-Message framing to
 // Chunked framing.  This is usually called after netconf exchanged the hello
 // messages.
-func (t *Framer) Upgrade() {
-	// XXX: do we need to protect against race conditions (atomic/mutex?)
-	t.upgraded = true
+func (f *Framer) Upgrade() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.chunkFraming = true
 }
 
-// MsgReader returns a new io.Reader that is good for reading exactly one netconf
-// message.
-//
-// Only one reader can be used at a time.  When this is called with an existing
-// reader then the underlying reader is advanced to the start of the next message
-// and invalidates the old reader before returning a new one.
-func (t *Framer) MsgReader() (io.ReadCloser, error) {
-	if t.upgraded {
-		t.curReader = &chunkReader{r: t.br}
-	} else {
-		t.curReader = &eomReader{r: t.br}
+func (f *Framer) closeReader() {
+	if f == nil {
+		return
 	}
-	return t.curReader, nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.activeReader = false
 }
 
-// MsgWriter returns an io.WriterCloser that is good for writing exactly one
-// netconf message.
-//
-// One one writer can be used at one time and calling this function with an
-// existing, unclosed,  writer will result in an error.
-func (t *Framer) MsgWriter() (io.WriteCloser, error) {
-	if t.curWriter != nil && !t.curWriter.isClosed() {
-		return nil, ErrExistingWriter
+func (f *Framer) closeWriter() {
+	if f == nil {
+		return
 	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.activeWriter = false
+}
 
-	if t.upgraded {
-		t.curWriter = &chunkWriter{w: t.bw}
-	} else {
-		t.curWriter = &eomWriter{w: t.bw}
+func (f *Framer) MsgReader() (io.ReadCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.activeReader {
+		return nil, ErrStreamBusy
 	}
-	return t.curWriter, nil
+	f.activeReader = true
+
+	if f.chunkFraming {
+		return &chunkedReader{
+			r: f.br,
+			f: f,
+		}, nil
+	}
+	return &markedReader{
+		r: f.br,
+		f: f,
+	}, nil
+}
+
+func (f *Framer) MsgWriter() (io.WriteCloser, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.activeWriter {
+		return nil, ErrStreamBusy
+	}
+	f.activeWriter = true
+
+	if f.chunkFraming {
+		return &chunkedWriter{
+			w: f.bw,
+			f: f,
+		}, nil
+	}
+	return &markedWriter{
+		w: f.bw,
+		f: f,
+	}, nil
 }
 
 var endOfChunks = []byte("\n##\n")
 
-// Defined in https://www.rfc-editor.org/rfc/rfc6242#section-4.2
-const maxChunk = math.MaxUint32
+// ErrMalformedChunk represents a message that invalid as defined in the chunk
+// framing in RFC6242
+var ErrMalformedChunk = errors.New("netconf: invalid chunk")
 
-type chunkReader struct {
+type chunkedReader struct {
+	f         *Framer
 	r         *bufio.Reader
 	chunkLeft uint32
+	eof       bool
 }
 
-func (r *chunkReader) readHeader() error {
-	peeked, err := r.r.Peek(4)
-	switch err {
-	case nil:
-		break
-	case io.EOF:
-		return io.ErrUnexpectedEOF
-	default:
-		return err
+func (r *chunkedReader) readHeader() (uint32, error) {
+	// Peek at marker to check for "\n#"
+	marker, err := r.r.Peek(4)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return 0, err
 	}
 
+	if marker[0] != '\n' || marker[1] != '#' {
+		return 0, ErrMalformedChunk
+	}
+
+	if marker[2] == '#' && marker[3] == '\n' {
+		// Discard the end-of-chunks marker
+		if _, err := r.r.Discard(4); err != nil {
+			return 0, err
+		}
+
+		return 0, nil // Signal end of message with 0 chunk size
+	}
+
+	// Discard the "\n#" preamble
 	if _, err := r.r.Discard(2); err != nil {
-		return err
+		return 0, err
 	}
 
-	// make sure the preamble of `\n#` which is used for both the start of a
-	// chuck and the end-of-chunk marker is valid.
-	if peeked[0] != '\n' || peeked[1] != '#' {
-		return ErrMalformedChunk
+	line, err := r.r.ReadSlice('\n')
+	if err != nil {
+		if err == io.EOF {
+			return 0, io.ErrUnexpectedEOF
+		}
+		// ReadSlice returns err if '\n' is missing (EOF or buffer full)
+		return 0, err
 	}
 
-	// check to see if we are at the end of the read
-	if peeked[2] == '#' && peeked[3] == '\n' {
-		if _, err := r.r.Discard(2); err != nil {
-			return err
-		}
-		// not strictly needed but it is the responsibility of this function to
-		// update chunkLeft.
-		r.chunkLeft = 0
-		return io.EOF
+	// Cut off the '\n' from the end for parsing
+	digits := line[:len(line)-1]
+
+	// If the line was just "\n", digits is empty (chunks must have size)
+	if len(digits) == 0 {
+		return 0, ErrMalformedChunk
 	}
 
-	var n uint32
-	for {
-		c, err := r.r.ReadByte()
-		if err != nil {
-			return err
-		}
-
-		if c == '\n' {
-			break
-		}
+	var chunkSize uint32
+	for _, c := range digits {
 		if c < '0' || c > '9' {
-			return ErrMalformedChunk
+			return 0, ErrMalformedChunk
 		}
-		n = n*10 + uint32(c) - '0'
+
+		if chunkSize > math.MaxUint32/10 {
+			return 0, ErrMalformedChunk
+		}
+		chunkSize = chunkSize * 10
+
+		digit := uint32(c - '0')
+		if chunkSize > math.MaxUint32-digit {
+			return 0, ErrMalformedChunk
+		}
+		chunkSize += digit
 	}
 
-	if n < 1 || n > maxChunk {
-		return ErrMalformedChunk
+	if chunkSize == 0 {
+		return 0, ErrMalformedChunk
 	}
 
-	r.chunkLeft = n
-	return nil
+	return chunkSize, nil
 }
 
-func (r *chunkReader) Read(p []byte) (int, error) {
+func (r *chunkedReader) Read(p []byte) (int, error) {
 	if r.r == nil {
 		return 0, ErrInvalidIO
 	}
-	// make sure we can't try to read more than the max chunk
-	if len(p) > maxChunk {
-		p = p[:maxChunk]
+
+	if len(p) > math.MaxUint32 {
+		p = p[:math.MaxUint32]
+	}
+
+	// If we have no bytes left in the current chunk, we must read a new header
+	if r.chunkLeft <= 0 {
+		chunkSize, err := r.readHeader()
+		if err != nil {
+			return 0, err
+		}
+
+		// Zero chunk size indicates "End of Chunks" (\n##\n)
+		if chunkSize == 0 {
+			r.eof = true
+			return 0, io.EOF
+		}
+		r.chunkLeft = chunkSize
+	}
+
+	toRead := min(uint32(len(p)), r.chunkLeft)
+	n, err := r.r.Read(p[:toRead])
+	r.chunkLeft -= uint32(n)
+
+	return n, err
+}
+
+func (r *chunkedReader) ReadByte() (byte, error) {
+	if r.r == nil {
+		return 0, ErrInvalidIO
 	}
 
 	// done with existing chunk so grab the next one
 	if r.chunkLeft <= 0 {
-		if err := r.readHeader(); err != nil {
+		n, err := r.readHeader()
+		if err != nil {
 			return 0, err
 		}
-	}
-
-	// XXX: This potential down conversion should be safe cause we resize p
-	// above.  Hopefully no one is trying to read 4GB in one call.
-	if uint32(len(p)) > r.chunkLeft {
-		p = p[:r.chunkLeft]
-	}
-
-	n, err := r.r.Read(p)
-	r.chunkLeft -= uint32(n)
-	return n, err
-}
-
-func (r *chunkReader) ReadByte() (byte, error) {
-	if r.r == nil {
-		return 0, ErrInvalidIO
-	}
-
-	// done with existing chunck so grab the next one
-	if r.chunkLeft <= 0 {
-		if err := r.readHeader(); err != nil {
-			return 0, err
+		if n == 0 {
+			r.eof = true
+			return 0, io.EOF
 		}
+		r.chunkLeft = n
 	}
 
 	b, err := r.r.ReadByte()
@@ -261,73 +277,121 @@ func (r *chunkReader) ReadByte() (byte, error) {
 	return b, nil
 }
 
-// Close will read the rest of the frame and consume it including
-// the end-of-frame markers if we haven't already done so.
-func (r *chunkReader) Close() error {
-	// poison the reader so that it can no longer be used
-	defer func() { r.r = nil }()
+func (r *chunkedReader) Close() error {
+	if r.r == nil {
+		return nil
+	}
+	defer func() {
+		r.r = nil
+		r.f.closeReader()
+	}()
 
-	// read all remaining chunks until we get to the end of the frame.
+	// If we have already read to the end, nothing to do
+	if r.eof {
+		return nil
+	}
+
+	// Drain the rest of the chunks until we hit the end-of-chunks marker
 	for {
 		if r.chunkLeft <= 0 {
-			// readHeader return io.EOF when it encounter the end-of-frame
-			// marker ("\n##\n")
-			err := r.readHeader()
-			switch {
-			case err == nil:
-				break
-			case errors.Is(err, io.EOF):
+			// readHeader return 0, nil when it hits the end-of-chunks
+			n, err := r.readHeader()
+			if err != nil {
+				return err
+			}
+
+			if n == 0 {
 				return nil
-			default:
+			}
+
+			r.chunkLeft = n
+		}
+
+		for r.chunkLeft > 0 {
+			// Protect against int overflow on 32-bit systems
+			toDiscard := int(r.chunkLeft)
+			if uint(r.chunkLeft) > uint(math.MaxInt) {
+				toDiscard = math.MaxInt
+			}
+
+			n, err := r.r.Discard(toDiscard)
+			r.chunkLeft -= uint32(n)
+			if err != nil {
 				return err
 			}
 		}
-
-		n, err := r.r.Discard(int(r.chunkLeft))
-		if err != nil {
-			return err
-		}
-		r.chunkLeft -= uint32(n)
 	}
 }
 
-type chunkWriter struct {
+type chunkedWriter struct {
+	f *Framer
 	w *bufio.Writer
 }
 
-func (w *chunkWriter) Write(p []byte) (int, error) {
+func (w *chunkedWriter) Write(p []byte) (int, error) {
 	if w.w == nil {
 		return 0, ErrInvalidIO
 	}
 
-	if _, err := fmt.Fprintf(w.w, "\n#%d\n", len(p)); err != nil {
-		return 0, err
+	totalWritten := 0
+	for len(p) > 0 {
+		// Cap chunk size at MaxInt32 (~2GB) to avoid overflow issues on all
+		// architectures.
+		//
+		// XXX: Should we default to smaller chunk sizes.  Default
+		// buffer in a bufio writer is 4k and seems resonable?  Check what other
+		// chunked implementations do?
+		chunkSize := len(p)
+		if chunkSize > math.MaxInt32 {
+			chunkSize = math.MaxInt32
+		}
+
+		// Write chunk header
+		if _, err := fmt.Fprintf(w.w, "\n#%d\n", chunkSize); err != nil {
+			return totalWritten, err
+		}
+
+		// Note: we are not checking for a partial writes as bufio.Writer
+		// will only return a short write if the underlying writer returns an
+		// error.
+		n, err := w.w.Write(p[:chunkSize])
+		totalWritten += n
+		if err != nil {
+			return totalWritten, err
+		}
+
+		// Advance
+		p = p[n:]
 	}
 
-	return w.w.Write(p)
+	return totalWritten, nil
 }
 
-func (w *chunkWriter) Close() error {
-	// poison the writer to prevent writes after close
-	defer func() { w.w = nil }()
+func (w *chunkedWriter) Close() error {
+	if w.w == nil {
+		return nil
+	}
+	defer func() {
+		w.w = nil
+		w.f.closeWriter()
+	}()
+
+	// write the end-of-chunks marker
 	if _, err := w.w.Write(endOfChunks); err != nil {
 		return err
 	}
 	return w.w.Flush()
 }
 
-func (w *chunkWriter) isClosed() bool { return w.w == nil }
-
 var endOfMsg = []byte("]]>]]>")
 
-type eomReader struct {
-	r *bufio.Reader
+type markedReader struct {
+	f   *Framer
+	r   *bufio.Reader
+	eof bool
 }
 
-func (r *eomReader) Read(p []byte) (int, error) {
-	// This probably isn't optimal however it looks like xml.Decoder
-	// mainly just called ReadByte() and this probably won't ever be
-	// used.
+func (r *markedReader) Read(p []byte) (int, error) {
 	for i := 0; i < len(p); i++ {
 		b, err := r.ReadByte()
 		if err != nil {
@@ -338,9 +402,13 @@ func (r *eomReader) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-func (r *eomReader) ReadByte() (byte, error) {
+func (r *markedReader) ReadByte() (byte, error) {
 	if r.r == nil {
 		return 0, ErrInvalidIO
+	}
+
+	if r.eof {
+		return 0, io.EOF
 	}
 
 	b, err := r.r.ReadByte()
@@ -367,6 +435,7 @@ func (r *eomReader) ReadByte() (byte, error) {
 				return 0, err
 			}
 
+			r.eof = true
 			return 0, io.EOF
 		}
 	}
@@ -374,11 +443,19 @@ func (r *eomReader) ReadByte() (byte, error) {
 	return b, nil
 }
 
-// Close will read the rest of the frame and consume it including
-// the end-of-frame marker.
-func (r *eomReader) Close() error {
-	// poison the reader so that it can no longer be used
-	defer func() { r.r = nil }()
+func (r *markedReader) Close() error {
+	if r.r == nil {
+		return nil
+	}
+	defer func() {
+		r.r = nil
+		r.f.closeReader()
+	}()
+
+	// If we have already read to the end, nothing to do
+	if r.eof {
+		return nil
+	}
 
 	var err error
 	for err == nil {
@@ -390,24 +467,27 @@ func (r *eomReader) Close() error {
 	return err
 }
 
-type eomWriter struct {
+type markedWriter struct {
+	f *Framer
 	w *bufio.Writer
 }
 
-func (w *eomWriter) Write(p []byte) (int, error) {
+func (w *markedWriter) Write(p []byte) (int, error) {
 	if w.w == nil {
 		return 0, ErrInvalidIO
 	}
+
 	return w.w.Write(p)
 }
 
-func (w *eomWriter) Close() error {
-	// poison the writer to prevent writes after close
-	defer func() { w.w = nil }()
-
-	if err := w.w.WriteByte('\n'); err != nil {
-		return err
+func (w *markedWriter) Close() error {
+	if w.w == nil {
+		return nil
 	}
+	defer func() {
+		w.w = nil
+		w.f.closeWriter()
+	}()
 
 	if _, err := w.w.Write(endOfMsg); err != nil {
 		return err
@@ -415,5 +495,3 @@ func (w *eomWriter) Close() error {
 
 	return w.w.Flush()
 }
-
-func (w *eomWriter) isClosed() bool { return w.w == nil }

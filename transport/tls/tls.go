@@ -17,7 +17,14 @@ type Transport struct {
 	*framer
 }
 
-// Dial will connect to a server via TLS and retuns a Transport.
+// Dial will connect to a NETCONF tls port and creates a new Transport.  It's
+// used as a convenience function and essentially is the same as:
+//
+//	c, err := tls.Dial(network, addr, config)
+//	if err != nil { /* ... handle error ... */ }
+//	t, err := NewTransport(c)
+//
+// When the transport is closed the underlying connection is also closed.
 func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Transport, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, network, addr)
@@ -26,8 +33,13 @@ func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Trans
 	}
 
 	tlsConn := tls.Client(conn, config)
-	return NewTransport(tlsConn), nil
 
+	if err := tlsConn.HandshakeContext(ctx); err != nil {
+		_ = tlsConn.Close()
+		return nil, err
+	}
+
+	return NewTransport(tlsConn), nil
 }
 
 // NewTransport takes an already connected tls transport and returns a new

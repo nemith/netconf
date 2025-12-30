@@ -2,6 +2,7 @@ package ssh
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -22,7 +23,7 @@ type Transport struct {
 	// set to true if the transport is managing the underlying ssh connection
 	// and should close it when the transport is closed.  This is is set to true
 	// when used with `Dial`.
-	managed bool
+	managedConn bool
 
 	*framer
 }
@@ -43,36 +44,42 @@ func Dial(ctx context.Context, network, addr string, config *ssh.ClientConfig) (
 	}
 
 	// Setup a go routine to monitor the context and close the connection.  This
-	// is needed as the underlying ssh library doesn't support contexts so this
+	// is needed as the ssh library doesn't support contexts for dialing so this
 	// approximates a context based cancelation/timeout for the ssh handshake.
 	//
-	// An alternative would be timeout based with conn.SetDeadline(), but then we
-	// would manage two timeouts.  One for tcp connection and one for ssh
-	// handshake and wouldn't support any other event based cancelation.
+	// Since writing this code, Go 1.20 added DialContext to ssh.ClientConn but it doesn't support a custom configuration
 	done := make(chan struct{})
+	defer close(done)
 	go func() {
 		select {
 		case <-ctx.Done():
-			// context is canceled so close the underlying connection.  Will
-			// will catch ctx.Err() later.
-			_ = conn.Close() // nolint:errcheck // TODO: catch and log err
+			_ = conn.Close()
 		case <-done:
 		}
 	}()
 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
 	if err != nil {
-		// if there is a context timeout return that error instead of the actual
-		// error from ssh.NewClientConn.
+		// ssh.NewClientConn closes the underlying connection so no need to call conn.Close()
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 		return nil, err
 	}
-	close(done) // make sure we cleanup the context monitor routine
 
 	client := ssh.NewClient(sshConn, chans, reqs)
-	return newTransport(client, true)
+
+	t, err := newTransport(client, true)
+	if err != nil {
+		// Close the client to not leak it on transport failure.
+		_ = client.Close()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, err
+	}
+
+	return t, nil
 }
 
 // NewTransport will create a new ssh transport as defined in RFC6242 for use
@@ -105,10 +112,10 @@ func newTransport(client *ssh.Client, managed bool) (*Transport, error) {
 	}
 
 	return &Transport{
-		c:       client,
-		managed: managed,
-		sess:    sess,
-		stdin:   w,
+		c:           client,
+		managedConn: managed,
+		sess:        sess,
+		stdin:       w,
 
 		framer: transport.NewFramer(r, w),
 	}, nil
@@ -118,22 +125,23 @@ func newTransport(client *ssh.Client, managed bool) (*Transport, error) {
 // with Dial then then underlying ssh.Client is closed as well.  If not only
 // the sessions is closed.
 func (t *Transport) Close() error {
-	// TODO: in go 1.20 this could easily be an errors.Join() but for now we
 	// will save previous errors but try to close everything returning just the
 	// "lowest" abstraction layer error
 	var retErr error
 
 	if err := t.stdin.Close(); err != nil {
-		retErr = fmt.Errorf("failed to close ssh stdin: %w", err)
+		retErr = errors.Join(retErr, fmt.Errorf("failed to close ssh stdin: %w", err))
 	}
 
 	if err := t.sess.Close(); err != nil {
-		retErr = fmt.Errorf("failed to close ssh channel: %w", err)
+		retErr = errors.Join(retErr, fmt.Errorf("failed to close ssh channel: %w", err))
 	}
 
-	if t.managed {
+	// If this is a "managed connection" (i.e one created with Dial) then we are
+	// responsible to close the connection.
+	if t.managedConn {
 		if err := t.c.Close(); err != nil {
-			return fmt.Errorf("failed to close ssh connnection: %w", t.c.Close())
+			return errors.Join(retErr, fmt.Errorf("failed to close ssh connection: %w", err))
 		}
 	}
 

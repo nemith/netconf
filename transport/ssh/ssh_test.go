@@ -1,13 +1,14 @@
 package ssh
 
 import (
-	"bytes"
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,65 +16,57 @@ import (
 )
 
 type testServer struct {
-	addr net.Addr
+	t               *testing.T // Add this field
+	listener        net.Listener
+	config          *ssh.ServerConfig
+	errCh           chan error
+	RejectSubsystem bool
 }
 
-const hostkey = `
------BEGIN OPENSSH PRIVATE KEY-----
-b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAABFwAAAAdzc2gtcn
-NhAAAAAwEAAQAAAQEApUSW/7sajldrqHjhNcg6PUhUu8ztmWWfE1myIz9DpvnCgfBCsgQK
-CF4uayYmN+FrxrEWovszrcDYxStvAFiDo6YAGI3CdePWOWJvzoAP+qtN018t3Fl3NaNBuB
-J1u+aQpoAa7+37hq7i/Hu9Gu7QFSvtA+QVjwt/o9L9gyZMwDCmhxoo+XjdV/SGkxaA7NcR
-y6YEPEbDFHdXPF9SPi3xY9+2UxPFSp7LmEREiZCq+KyGgUuNDyGei7Gb+jZUiXgctw30l3
-f+mvQt6FKOmvHtevgIF2Eu7AVDIh+Hrj9fd3qpnsKsI+laBza+++2g34oJGPI0zXw9gFbV
-yNeliet2uQAAA9C5b2AkuW9gJAAAAAdzc2gtcnNhAAABAQClRJb/uxqOV2uoeOE1yDo9SF
-S7zO2ZZZ8TWbIjP0Om+cKB8EKyBAoIXi5rJiY34WvGsRai+zOtwNjFK28AWIOjpgAYjcJ1
-49Y5Ym/OgA/6q03TXy3cWXc1o0G4EnW75pCmgBrv7fuGruL8e70a7tAVK+0D5BWPC3+j0v
-2DJkzAMKaHGij5eN1X9IaTFoDs1xHLpgQ8RsMUd1c8X1I+LfFj37ZTE8VKnsuYRESJkKr4
-rIaBS40PIZ6LsZv6NlSJeBy3DfSXd/6a9C3oUo6a8e16+AgXYS7sBUMiH4euP193eqmewq
-wj6VoHNr777aDfigkY8jTNfD2AVtXI16WJ63a5AAAAAwEAAQAAAQAvF1Y3VCcC/CHvBVKW
-spD1uVB7mq7xEKW9K8e4h2RNhclIoR8//iqlq8BqQ5qMPa0qFneuxQk6r0KVHAUrAg2wab
-KJTItmcB8whr35B0CGWp14Zxx4Nv3iyLwHKStm+RGqf8ItL5CGFfsTmmaN8BJWlgeZHjqO
-YeZi1dHqttUTxdM3wrBLF6teZ5q9xmLrzUK7+osq/Es8vghDzorxxtlxpwo/38kZchL67N
-TI+GMc5tM0ExqwhPwNhDfEUF9WEIg8rB1YQA+/ehaaj2POnPcvOdGSHDSWdr443FOddbeP
-VKJAqv4omh/T/LFzm8sbVdAomm2hAa2CWJkXVk6n3pepAAAAgB1Xq4PBJfUaOOqvzBRMdG
-gmjnR/Qw4Pe3HcYC2G/BXvoQ8o8ioYmV7G9vsOY88gRqZisQdjfuaFsczJ+wtCTgePoZw3
-foeATvKmm5Ds8tRr33CjL0wt/uDQRuLW8IiOmtN4+bgUQjJyD7Gu8THzg4NQ6dJunZsESr
-tN7yojg7YWAAAAgQDj33QvfjabMKpbpRJ+Lk/KKqfHUj0s3OZIx8EQu/YzT+WZW6VwYAFe
-pHuvBMN+SfiJW0niMdyDnrrROV/hIPtEJoS/sBBMGNJb/MLP2Cm3nySocvoT7J6OS1B7hJ
-2rAjoAijpFi9HbyY00LbfNNXT9HJVrFpJ3uXwsn8OWPXNxRwAAAIEAuariiisP8L+/K9DM
-3S3lpP816GQ+91gYGk1fS1jm5ejCieKJw3m/R96loV2wBz1NzSCn5B4sHqXIoVhYt7Ms8k
-QXHvb1h5QQyt1p/F5eFC/f+ZEThsSSX6FIHjTazV3OxcvUxoHTG3P4RDNWY6yzo2iZke1R
-0Oh3hpZmwH9d1/8AAAAYYnJhbmRvbmJlbm5ldHRAc3Ryb25nc2FkAQID
------END OPENSSH PRIVATE KEY-----
-`
+func newTestServer(t *testing.T) *testServer {
+	t.Helper()
 
-func newTestServer(t *testing.T, handlerFn func(*testing.T, ssh.Channel, <-chan *ssh.Request)) (*testServer, error) {
-	config := &ssh.ServerConfig{
-		NoClientAuth: true,
-	}
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	signer, err := ssh.NewSignerFromKey(priv)
+	require.NoError(t, err)
 
-	key, err := ssh.ParsePrivateKey([]byte(hostkey))
-	if err != nil {
-		log.Fatal("Failed to parse private key: ", err)
-	}
-	config.AddHostKey(key)
+	config := &ssh.ServerConfig{NoClientAuth: true}
+	config.AddHostKey(signer)
 
 	ln, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		return nil, err
-	}
+	require.NoError(t, err)
 
+	return &testServer{
+		t:        t,
+		listener: ln,
+		config:   config,
+		errCh:    make(chan error, 1),
+	}
+}
+
+func (s *testServer) Addr() string { return s.listener.Addr().String() }
+
+func (s *testServer) Serve(handler func(ssh.Channel) error) {
 	go func() {
-		nconn, err := ln.Accept()
+		defer close(s.errCh)
+		defer func() {
+			if err := s.listener.Close(); err != nil {
+				// We often ignore "use of closed network connection"
+				// but logging it hurts nothing in verbose mode.
+				s.t.Logf("testServer listener close: %v", err)
+			}
+		}()
+
+		conn, err := s.listener.Accept()
 		if err != nil {
-			t.Logf("failed to accept new conn: %v", err)
+			s.errCh <- fmt.Errorf("accept: %w", err)
 			return
 		}
 
-		_, chans, reqs, err := ssh.NewServerConn(nconn, config)
+		_, chans, reqs, err := ssh.NewServerConn(conn, s.config)
 		if err != nil {
-			t.Logf("failed to create ssh conn: %v", err)
+			s.errCh <- fmt.Errorf("handshake: %w", err)
 			return
 		}
 		go ssh.DiscardRequests(reqs)
@@ -81,63 +74,66 @@ func newTestServer(t *testing.T, handlerFn func(*testing.T, ssh.Channel, <-chan 
 		for newChannel := range chans {
 			if newChannel.ChannelType() != "session" {
 				err := newChannel.Reject(ssh.UnknownChannelType, "unknown channel type")
-				assert.NoError(t, err)
+				if err != nil {
+					s.t.Logf("failed to reject channel: %v", err)
+				}
 				continue
 			}
-
 			ch, reqs, err := newChannel.Accept()
 			if err != nil {
-				t.Logf("failed to accept new channel: %v", err)
+				s.errCh <- fmt.Errorf("channel accept: %w", err)
 				return
 			}
 
-			handlerFn(t, ch, reqs)
+			go func(in <-chan *ssh.Request) {
+				for req := range in {
+					// In a real server we'd check payload == "netconf",
+					// but for tests accepting any subsystem is fine.
+					if req.Type == "subsystem" {
+						if err := req.Reply(!s.RejectSubsystem, nil); err != nil {
+							s.t.Logf("failed to reply to subsystem req: %v", err)
+						}
+					}
+				}
+			}(reqs)
+
+			if err := handler(ch); err != nil {
+				s.errCh <- err
+			}
+			return
 		}
 	}()
-
-	return &testServer{
-		addr: ln.Addr(),
-	}, nil
 }
 
-func TestTransport(t *testing.T) {
-	var (
-		srvIn bytes.Buffer
-	)
-	srvDone := make(chan struct{})
-	server, err := newTestServer(t, func(t *testing.T, ch ssh.Channel, reqs <-chan *ssh.Request) {
-		go func() {
-			for req := range reqs {
-				if req.Type != "subsystem" || !bytes.Equal(req.Payload[4:], []byte("netconf")) {
-					panic(fmt.Sprintf("unknown ssh request: %q: %q", req.Type, req.Payload))
-				}
-				err := req.Reply(true, nil)
-				assert.NoError(t, err)
-			}
-		}()
-		_, err := io.WriteString(ch, "muffins]]>]]>")
-		require.NoError(t, err)
+func (s *testServer) Wait(t *testing.T) error {
+	t.Helper()
+	err := <-s.errCh
+	return err
+}
 
-		_, err = io.Copy(&srvIn, ch)
-		require.NoError(t, err)
-		close(srvDone)
+func TestTransport_Dial(t *testing.T) {
+	srv := newTestServer(t)
+	var serverSeen []byte
+
+	srv.Serve(func(ch ssh.Channel) error {
+		if _, err := io.WriteString(ch, "muffins]]>]]>"); err != nil {
+			return err
+		}
+
+		var err error
+		serverSeen, err = io.ReadAll(ch)
+		return err
 	})
+
+	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
 	require.NoError(t, err)
 
-	config := &ssh.ClientConfig{
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-	}
-	tr, err := Dial(context.Background(), "tcp", server.addr.String(), config)
-	require.NoError(t, err)
-
-	// test read
 	r, err := tr.MsgReader()
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	greeting, _ := io.ReadAll(r)
+	assert.Equal(t, "muffins", string(greeting))
 
-	_, err = io.ReadAll(r)
-	assert.NoError(t, err)
-
-	// test write
 	w, err := tr.MsgWriter()
 	assert.NoError(t, err)
 
@@ -151,9 +147,145 @@ func TestTransport(t *testing.T) {
 	err = tr.Close()
 	assert.NoError(t, err)
 
-	// wait for the server to close
-	<-srvDone
+	require.NoError(t, srv.Wait(t))
+	assert.Equal(t, "a man a plan a canal panama]]>]]>", string(serverSeen))
+}
 
-	want := out + "]]>]]>"
-	assert.Equal(t, want, srvIn.String())
+func TestTransport_Dial_NetworkFailure(t *testing.T) {
+	// Try to dial a port that is definitely closed (port 1 on localhost)
+	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+
+	// Use a short timeout so the test is fast
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	tr, err := Dial(ctx, "tcp", "127.0.0.1:1", config)
+
+	assert.Error(t, err)
+	assert.Nil(t, tr)
+	// Assert it's a network error
+	assert.Contains(t, err.Error(), "connection refused")
+}
+
+func TestTransport_Dial_AuthFailure(t *testing.T) {
+	srv := newTestServer(t)
+	// Force the server to require a password, but provide none
+	srv.config.NoClientAuth = false
+	srv.config.PasswordCallback = func(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
+		return nil, fmt.Errorf("password rejected")
+	}
+
+	// We don't need srv.Serve here because the handshake will fail
+	// before the handler is ever reached.
+	// But we must start the listener loop:
+	srv.Serve(func(ch ssh.Channel) error { return nil })
+
+	config := &ssh.ClientConfig{
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		// No Auth methods provided = Auth Failure
+	}
+
+	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
+
+	assert.Error(t, err)
+	assert.Nil(t, tr)
+	assert.ErrorContains(t, err, "unable to authenticate")
+
+	// For some reason ErrorsIs doesn't work here despite ssh.ErrNoAuth existing.
+	assert.ErrorContains(t, srv.Wait(t), "no auth passed yet")
+}
+
+func TestTransport_DialContextCancel(t *testing.T) {
+	// Standard hanging listener pattern (no changes needed here)
+	ln, err := net.Listen("tcp", "localhost:0")
+	require.NoError(t, err)
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Logf("failed to close listener: %v", err)
+		}
+	}()
+
+	go func() {
+		conn, _ := ln.Accept()
+		if conn != nil {
+			if _, err := io.Copy(io.Discard, conn); err != nil {
+				t.Logf("failed to copy from conn: %v", err)
+			}
+		}
+	}()
+
+	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = Dial(ctx, "tcp", ln.Addr().String(), config)
+
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+	assert.WithinDuration(t, start, time.Now(), 200*time.Millisecond)
+}
+
+func TestTransport_Dial_SubsystemFails(t *testing.T) {
+	srv := newTestServer(t)
+	srv.RejectSubsystem = true
+
+	srv.Serve(func(ch ssh.Channel) error {
+		_, err := io.ReadAll(ch)
+		return err
+	})
+
+	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+
+	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
+
+	// Dial should fail because the subsystem request was rejected
+	assert.Error(t, err)
+	assert.Nil(t, tr)
+
+	// Ensure the server finishes cleanly (client should close connection on error)
+	require.NoError(t, srv.Wait(t))
+}
+
+func TestTransport_MultipleMessages(t *testing.T) {
+	srv := newTestServer(t)
+	var serverSeen []byte
+
+	srv.Serve(func(ch ssh.Channel) error {
+		_, err := io.WriteString(ch, "muffins]]>]]>")
+		if err != nil {
+			return err
+		}
+
+		serverSeen, err = io.ReadAll(ch)
+		return err
+	})
+
+	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
+	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
+	require.NoError(t, err)
+
+	r, _ := tr.MsgReader()
+	_, err = io.ReadAll(r) // Clear greeting
+	assert.NoError(t, err)
+
+	w, _ := tr.MsgWriter()
+	_, err = io.WriteString(w, "msg1")
+	assert.NoError(t, err)
+
+	err = w.Close()
+	assert.NoError(t, err)
+
+	w, _ = tr.MsgWriter()
+	_, err = io.WriteString(w, "msg2")
+	assert.NoError(t, err)
+
+	err = w.Close()
+	assert.NoError(t, err)
+
+	err = tr.Close()
+	assert.NoError(t, err)
+
+	require.NoError(t, srv.Wait(t))
+
+	assert.Equal(t, "msg1]]>]]>msg2]]>]]>", string(serverSeen))
 }

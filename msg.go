@@ -3,10 +3,9 @@ package netconf
 import (
 	"encoding/xml"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
-
-	"golang.org/x/exp/slices"
 )
 
 // RawXML captures the raw xml for the given element.  Used to process certain

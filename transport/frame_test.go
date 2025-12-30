@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
+	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +32,114 @@ var (
   <close-session/>
 </rpc>`)
 )
+
+func TestChunkedReader_readHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantSize uint32
+		wantErr  error // If nil, we expect no error
+	}{
+		// --- Valid Cases ---
+		{
+			name:     "simpleChunk",
+			input:    "\n#100\n",
+			wantSize: 100,
+		},
+		{
+			name:     "singleDigit",
+			input:    "\n#1\n",
+			wantSize: 1,
+		},
+		{
+			name:     "maxChunk",
+			input:    "\n#4294967295\n",
+			wantSize: math.MaxUint32,
+		},
+		{
+			name:     "endOfChunks",
+			input:    "\n##\n",
+			wantSize: 0,
+		},
+
+		// --- Structural/Syntax Errors ---
+		{
+			name:    "missingLeadingNewline",
+			input:   "x#100\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name:    "missingHash",
+			input:   "\n!100\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name:    "incomplete",
+			input:   "\n#1", // Less than 4 bytes
+			wantErr: io.ErrUnexpectedEOF,
+		},
+		{
+			name:    "missingTralingNewline",
+			input:   "\n#123", // 4+ bytes but no ending newline
+			wantErr: io.ErrUnexpectedEOF,
+		},
+		{
+			name:  "emptySize",
+			input: "\n#\n",
+			// This is technically the same as short read (less than 4 bytes)
+			wantErr: io.ErrUnexpectedEOF,
+		},
+		{
+			name:    "zeroChunkSize",
+			input:   "\n#0\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name:    "manyZeros",
+			input:   "\n#000\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name:    "nonDigit",
+			input:   "\n#12a3\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name:    "negativeSize",
+			input:   "\n#-5\n",
+			wantErr: ErrMalformedChunk,
+		},
+
+		// --- Overflow Checks ---
+		{
+			name: "overflowMultiplication",
+			// 5000000000 is > MaxUint32
+			// Fails at: chunkSize > MaxUint32/10 check
+			input:   "\n#5000000000\n",
+			wantErr: ErrMalformedChunk,
+		},
+		{
+			name: "overflowAddition",
+			// 4294967296 is MaxUint32 + 1
+			// Passes multiplication check (429496729 < Max/10)
+			// Fails at: chunkSize > Max - digit check
+			input:   "\n#4294967296\n",
+			wantErr: ErrMalformedChunk,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := &chunkedReader{
+				r: bufio.NewReader(strings.NewReader(tt.input)),
+			}
+
+			got, err := r.readHeader()
+			assert.ErrorIs(t, err, tt.wantErr)
+			assert.Equal(t, tt.wantSize, got)
+		})
+	}
+}
 
 var chunkedTests = []struct {
 	name        string
@@ -77,7 +188,7 @@ var chunkedTests = []struct {
 func TestChunkReaderReadByte(t *testing.T) {
 	for _, tc := range chunkedTests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &chunkReader{
+			r := &chunkedReader{
 				r: bufio.NewReader(bytes.NewReader(tc.input)),
 			}
 
@@ -103,7 +214,10 @@ func TestChunkReaderReadByte(t *testing.T) {
 			}
 			assert.Equal(t, tc.want, buf)
 
-			r.Close() //nolint:errcheck // TODO: validate the close error
+			closeErr := r.Close()
+			if tc.err == nil {
+				assert.NoError(t, closeErr)
+			}
 		})
 	}
 }
@@ -111,7 +225,7 @@ func TestChunkReaderReadByte(t *testing.T) {
 func TestChunkReaderRead(t *testing.T) {
 	for _, tc := range chunkedTests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &chunkReader{
+			r := &chunkedReader{
 				r: bufio.NewReader(bytes.NewReader(tc.input)),
 			}
 
@@ -119,15 +233,17 @@ func TestChunkReaderRead(t *testing.T) {
 			assert.Equal(t, tc.err, err)
 			assert.Equal(t, tc.want, got)
 
-			// TODO: validate the return error
-			r.Close() // nolint:errcheck // TODO: validate the close error
+			closeErr := r.Close()
+			if tc.err == nil {
+				assert.NoError(t, closeErr)
+			}
 		})
 	}
 }
 
 func TestChunkWriter(t *testing.T) {
 	buf := bytes.Buffer{}
-	w := &chunkWriter{bufio.NewWriter(&buf)}
+	w := &chunkedWriter{w: bufio.NewWriter(&buf)}
 
 	n, err := w.Write([]byte("foo"))
 	assert.NoError(t, err)
@@ -144,60 +260,8 @@ func TestChunkWriter(t *testing.T) {
 	assert.Equal(t, want, buf.Bytes())
 }
 
-func BenchmarkChunkedReadByte(b *testing.B) {
-	src := bytes.NewReader(rfcChunkedRPC)
-	readers := []struct {
-		name string
-		r    io.ByteReader
-	}{
-		// test against bufio as a "baseline"
-		{"bufio", bufio.NewReader(src)},
-		{"chunkreader", &chunkReader{r: bufio.NewReader(src)}},
-	}
-
-	for _, bc := range readers {
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				_, _ = bc.r.ReadByte() //nolint:errcheck
-				b.SetBytes(1)
-			}
-		})
-	}
-}
-
-func BenchmarkChunkedRead(b *testing.B) {
-	src := bytes.NewReader(rfcChunkedRPC)
-	readers := []struct {
-		name string
-		r    io.Reader
-	}{
-		// test against a standard reader and a bufio for a baseline
-		{"bare", onlyReader{src}},
-		{"bufio", onlyReader{bufio.NewReader(src)}},
-		{"chunkedreader", onlyReader{&chunkReader{r: bufio.NewReader(src)}}},
-	}
-	dstBuf := &bytes.Buffer{}
-	dst := onlyWriter{dstBuf}
-
-	for _, bc := range readers {
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				src.Reset(rfcChunkedRPC)
-				dstBuf.Reset()
-				n, err := io.Copy(&dst, bc.r)
-				if err != nil {
-					b.Fatal(err)
-				}
-				b.SetBytes(int64(n))
-			}
-		})
-	}
-}
-
 var (
-	rfcEOMRPC = []byte(`
+	rfcMarkedRPC = []byte(`
 <?xml version="1.0" encoding="UTF-8"?>
 <rpc message-id="105"
 xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
@@ -209,7 +273,7 @@ xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
   </get-config>
 </rpc>
 ]]>]]>`)
-	rfcUnframedRPC = rfcEOMRPC[:len(rfcEOMRPC)-6]
+	rfcUnframedRPC = rfcMarkedRPC[:len(rfcMarkedRPC)-6]
 )
 
 var framedTests = []struct {
@@ -240,14 +304,14 @@ var framedTests = []struct {
 		[]byte("foo]]>]]bar]]>]]>"),
 		[]byte("foo]]>]]bar"),
 		nil},
-	{"rfc example rpc", rfcEOMRPC, rfcUnframedRPC, nil},
+	{"rfc example rpc", rfcMarkedRPC, rfcUnframedRPC, nil},
 }
 
-func TestEOMReadByte(t *testing.T) {
+func TestMarkedReadByte(t *testing.T) {
 	for _, tc := range framedTests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &eomReader{
-				bufio.NewReader(bytes.NewReader(tc.input)),
+			r := &markedReader{
+				r: bufio.NewReader(bytes.NewReader(tc.input)),
 			}
 
 			buf := make([]byte, 8192)
@@ -272,29 +336,35 @@ func TestEOMReadByte(t *testing.T) {
 
 			assert.Equal(t, tc.want, buf)
 
-			r.Close() // nolint:errcheck // TODO: validate the close error
+			closeErr := r.Close()
+			if tc.err == nil {
+				assert.NoError(t, closeErr)
+			}
 		})
 	}
 }
 
-func TestEOMRead(t *testing.T) {
+func TestMarkedRead(t *testing.T) {
 	for _, tc := range framedTests {
 		t.Run(tc.name, func(t *testing.T) {
-			r := &eomReader{
+			r := &markedReader{
 				r: bufio.NewReader(bytes.NewReader(tc.input)),
 			}
 			got, err := io.ReadAll(r)
 			assert.Equal(t, err, tc.err)
 			assert.Equal(t, tc.want, got)
 
-			r.Close() // nolint:errcheck // TODO: validate the close error
+			closeErr := r.Close()
+			if tc.err == nil {
+				assert.NoError(t, closeErr)
+			}
 		})
 	}
 }
 
-func TestEOMWriter(t *testing.T) {
+func TestMarkedWriter(t *testing.T) {
 	buf := bytes.Buffer{}
-	w := &eomWriter{w: bufio.NewWriter(&buf)}
+	w := &markedWriter{w: bufio.NewWriter(&buf)}
 
 	n, err := w.Write([]byte("foo"))
 	assert.NoError(t, err)
@@ -303,71 +373,211 @@ func TestEOMWriter(t *testing.T) {
 	err = w.Close()
 	assert.NoError(t, err)
 
-	want := []byte("foo\n]]>]]>")
+	want := []byte("foo]]>]]>")
 	assert.Equal(t, want, buf.Bytes())
 }
 
-// force benchmarks to not use any fancy ReadFroms's or other shortcuts
-type onlyReader struct {
-	io.Reader
-}
+const (
+	// Chunk size used for generating synthetic data.
+	// 4KB is a reasonable default for many network implementations.
+	benchChunkSize = 4096
+)
 
-// force benchmarks to not use any fancy WriteTo's or other shortcuts
-type onlyWriter struct {
-	io.Writer
-}
+// generateChunkedData creates a valid chunked message of approx totalSize bytes.
+func generateChunkedData(totalSize int) []byte {
+	buf := bytes.Buffer{}
+	// Use a recognizable pattern
+	payload := []byte("0123456789abcdef")
 
-func BenchmarkEOMReadByte(b *testing.B) {
-	src := bytes.NewReader(rfcEOMRPC)
+	current := 0
+	for current < totalSize {
+		// Determine size for this specific chunk
+		size := benchChunkSize
+		if totalSize-current < size {
+			size = totalSize - current
+		}
 
-	readers := []struct {
-		name string
-		r    io.ByteReader
-	}{
-		// test against bufio as a "baseline"
-		{"bufio", bufio.NewReader(src)},
-		{"framereader", &eomReader{r: bufio.NewReader(src)}},
+		// Write header: \n#<len>\n
+		fmt.Fprintf(&buf, "\n#%d\n", size)
+
+		// Write payload repeating the pattern
+		for i := 0; i < size; i++ {
+			buf.WriteByte(payload[i%len(payload)])
+		}
+		current += size
 	}
 
-	for _, bc := range readers {
-		b.Run(bc.name, func(b *testing.B) {
+	// Write End-of-Chunks
+	buf.Write([]byte("\n##\n"))
+	return buf.Bytes()
+}
+
+// generateMarkedData creates a valid end-of-message delimited message of approx
+// totalSize bytes.
+func generateMarkedData(totalSize int) []byte {
+	buf := bytes.Buffer{}
+	payload := []byte("0123456789abcdef")
+
+	for i := 0; i < totalSize; i++ {
+		buf.WriteByte(payload[i%len(payload)])
+	}
+	buf.Write(endOfMsg)
+	return buf.Bytes()
+}
+
+func BenchmarkChunkedRead(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		size int
+	}{
+		{"Small_200B", 200},
+		{"Medium_128KB", 128 * 1024},
+		{"Large_10MB", 10 * 1024 * 1024},
+	}
+
+	// Pre-allocate a buffer for io.CopyBuffer to avoid measuring allocation overhead
+	copyBuf := make([]byte, 32*1024)
+	dst := io.Discard
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			data := generateChunkedData(bm.size)
+			src := bytes.NewReader(data)
+
+			br := bufio.NewReader(src)
+			r := &chunkedReader{r: br}
+
+			b.SetBytes(int64(len(data)))
+			b.ResetTimer()
 			b.ReportAllocs()
+
 			for i := 0; i < b.N; i++ {
-				_, _ = bc.r.ReadByte() // nolint:errcheck
-				b.SetBytes(1)
+				src.Reset(data)
+				br.Reset(src)
+
+				_, err := io.CopyBuffer(dst, r, copyBuf)
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}
 }
 
-func BenchmarkEOMRead(b *testing.B) {
-	src := bytes.NewReader(rfcEOMRPC)
-
-	readers := []struct {
+func BenchmarkChunkedReadByte(b *testing.B) {
+	benchmarks := []struct {
 		name string
-		r    io.Reader
+		size int
 	}{
-		// test against a standard reader and a bufio for a baseline
-		{"bare", onlyReader{src}},
-		{"bufio", onlyReader{bufio.NewReader(src)}},
-		{"framereader", onlyReader{&eomReader{r: bufio.NewReader(src)}}},
+		{"Small_200B", 200},
+		{"Medium_128KB", 128 * 1024},
+		// ReadByte on 10MB is extremely slow and mostly tests CPU patience,
+		// but included for completeness if desired.
 	}
-	dstBuf := &bytes.Buffer{}
-	dst := onlyWriter{dstBuf}
 
-	for _, bc := range readers {
-		b.Run(bc.name, func(b *testing.B) {
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			data := generateChunkedData(bm.size)
+			src := bytes.NewReader(data)
+
+			br := bufio.NewReader(src)
+			r := &chunkedReader{r: br}
+
+			b.SetBytes(int64(len(data)))
+			b.ResetTimer()
 			b.ReportAllocs()
+
 			for i := 0; i < b.N; i++ {
-				src.Reset(rfcEOMRPC)
-				dstBuf.Reset()
-				n, err := io.Copy(&dst, bc.r)
+				src.Reset(data)
+				br.Reset(src)
+
+				for {
+					_, err := r.ReadByte()
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							break
+						}
+						b.Fatal(err)
+					}
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkMarkedRead(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		size int
+	}{
+		{"Small_200B", 200},
+		{"Medium_128KB", 128 * 1024},
+		{"Large_10MB", 10 * 1024 * 1024},
+	}
+
+	copyBuf := make([]byte, 32*1024)
+	dst := io.Discard
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			data := generateMarkedData(bm.size)
+			src := bytes.NewReader(data)
+
+			br := bufio.NewReader(src)
+			r := &markedReader{r: br}
+
+			b.SetBytes(int64(len(data)))
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				src.Reset(data)
+				br.Reset(src)
+
+				_, err := io.CopyBuffer(dst, r, copyBuf)
 				if err != nil {
 					b.Fatal(err)
 				}
-				b.SetBytes(int64(n))
 			}
+		})
+	}
+}
 
+func BenchmarkMarkedReadByte(b *testing.B) {
+	benchmarks := []struct {
+		name string
+		size int
+	}{
+		{"Small_200B", 200},
+		{"Medium_128KB", 128 * 1024},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			data := generateMarkedData(bm.size)
+			src := bytes.NewReader(data)
+
+			br := bufio.NewReader(src)
+			r := &markedReader{r: br}
+
+			b.SetBytes(int64(len(data)))
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				src.Reset(data)
+				br.Reset(src)
+
+				for {
+					_, err := r.ReadByte()
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							break
+						}
+						b.Fatal(err)
+					}
+				}
+			}
 		})
 	}
 }

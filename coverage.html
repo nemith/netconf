@@ -176,10 +176,9 @@ func (cs capabilitySet) All() []string <span class="cov4" title="4">{
 import (
         "encoding/xml"
         "fmt"
+        "slices"
         "strings"
         "time"
-
-        "golang.org/x/exp/slices"
 )
 
 // RawXML captures the raw xml for the given element.  Used to process certain

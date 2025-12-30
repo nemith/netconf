@@ -63,7 +63,7 @@
 				
 				<option value="file3">nemith.io/netconf/session.go (52.9%)</option>
 				
-				<option value="file4">nemith.io/netconf/transport/frame.go (59.2%)</option>
+				<option value="file4">nemith.io/netconf/transport/frame.go (64.2%)</option>
 				
 				<option value="file5">nemith.io/netconf/transport/ssh/ssh.go (66.7%)</option>
 				
@@ -1311,27 +1311,13 @@ import (
         "fmt"
         "io"
         "math"
-        "os"
-        "path/filepath"
-        "time"
+        "sync"
 )
 
-// ErrMalformedChunk represents a message that invalid as defined in the chunk
-// framing in RFC6242
-var ErrMalformedChunk = errors.New("netconf: invalid chunk")
-
-type frameReader interface {
-        io.ReadCloser
-        io.ByteReader
-}
-
-type frameWriter interface {
-        io.WriteCloser
-        isClosed() bool
-}
+var ErrStreamBusy = errors.New("transport: stream is already active")
 
 // Framer is a wrapper used for transports that implement the framing defined in
-// RFC6242.  This supports End-of-Message and Chucked framing methods and
+// RFC6242.  This supports End-of-Message and Chunked framing methods and
 // will move from End-of-Message to Chunked framing after the `Upgrade` method
 // has been called.
 //
@@ -1344,46 +1330,21 @@ type Framer struct {
         br *bufio.Reader
         bw *bufio.Writer
 
-        curReader frameReader
-        curWriter frameWriter
-
-        upgraded bool
+        mu           sync.Mutex
+        chunkFraming bool
+        activeReader bool
+        activeWriter bool
 }
 
 // NewFramer return a new Framer to be used against the given io.Reader and io.Writer.
 func NewFramer(r io.Reader, w io.Writer) *Framer <span class="cov0" title="0">{
-        f := &amp;Framer{
+        return &amp;Framer{
                 r:  r,
                 w:  w,
                 br: bufio.NewReader(r),
                 bw: bufio.NewWriter(w),
         }
-
-        capDir := os.Getenv("GONETCONF_FRAMED_CAPDIR")
-        if capDir != "" </span><span class="cov0" title="0">{
-                if err := os.MkdirAll(capDir, 0o755); err != nil </span><span class="cov0" title="0">{
-                        panic(fmt.Sprintf("GO_NETCONF_FRAMER: failed to create capture output dir: %v", err))</span>
-                }
-
-                <span class="cov0" title="0">ts := time.Now().Format(time.RFC3339)
-
-                inFilename := filepath.Join(capDir, ts+".in")
-                inf, err := os.Create(inFilename)
-                if err != nil </span><span class="cov0" title="0">{
-                        panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))</span>
-                }
-
-                <span class="cov0" title="0">outFilename := filepath.Join(capDir, ts+".out")
-                outf, err := os.Create(outFilename)
-                if err != nil </span><span class="cov0" title="0">{
-                        panic(fmt.Sprintf("failed to create capture file %q: %v", inFilename, err))</span>
-                }
-
-                <span class="cov0" title="0">f.DebugCapture(inf, outf)</span>
-        }
-
-        <span class="cov0" title="0">return f</span>
-}
+}</span>
 
 // DebugCapture will copy all *framed* input/output to the the given
 // `io.Writers` for sent or recv data.  Either sent of recv can be nil to not
@@ -1391,170 +1352,225 @@ func NewFramer(r io.Reader, w io.Writer) *Framer <span class="cov0" title="0">{
 // for debugging.
 //
 // This needs to be called before `MsgReader` or `MsgWriter`.
-func (f *Framer) DebugCapture(in io.Writer, out io.Writer) <span class="cov0" title="0">{
-        // XXX: should there be a sentinel flag to indicate write/read has been done already?
-        if f.curReader != nil ||
-                f.curWriter != nil ||
+func (f *Framer) DebugCapture(input, output io.Writer) <span class="cov0" title="0">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+
+        if f.activeReader ||
+                f.activeWriter ||
                 f.bw.Buffered() &gt; 0 ||
                 f.br.Buffered() &gt; 0 </span><span class="cov0" title="0">{
                 panic("debug capture added with active reader or writer")</span>
         }
 
-        <span class="cov0" title="0">if out != nil </span><span class="cov0" title="0">{
-                f.w = io.MultiWriter(f.w, out)
-                f.bw = bufio.NewWriter(f.w)
+        <span class="cov0" title="0">if input != nil </span><span class="cov0" title="0">{
+                f.br = bufio.NewReader(io.TeeReader(f.r, input))
         }</span>
 
-        <span class="cov0" title="0">if in != nil </span><span class="cov0" title="0">{
-                f.r = io.TeeReader(f.r, in)
-                f.br = bufio.NewReader(f.r)
+        <span class="cov0" title="0">if output != nil </span><span class="cov0" title="0">{
+                f.bw = bufio.NewWriter(io.MultiWriter(f.w, output))
         }</span>
 }
 
 // Upgrade will cause the Framer to switch from End-of-Message framing to
 // Chunked framing.  This is usually called after netconf exchanged the hello
 // messages.
-func (t *Framer) Upgrade() <span class="cov0" title="0">{
-        // XXX: do we need to protect against race conditions (atomic/mutex?)
-        t.upgraded = true
+func (f *Framer) Upgrade() <span class="cov0" title="0">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+        f.chunkFraming = true
 }</span>
 
-// MsgReader returns a new io.Reader that is good for reading exactly one netconf
-// message.
-//
-// Only one reader can be used at a time.  When this is called with an existing
-// reader then the underlying reader is advanced to the start of the next message
-// and invalidates the old reader before returning a new one.
-func (t *Framer) MsgReader() (io.ReadCloser, error) <span class="cov0" title="0">{
-        if t.upgraded </span><span class="cov0" title="0">{
-                t.curReader = &amp;chunkReader{r: t.br}
-        }</span> else<span class="cov0" title="0"> {
-                t.curReader = &amp;eomReader{r: t.br}
+func (f *Framer) closeReader() <span class="cov5" title="34">{
+        if f == nil </span><span class="cov5" title="34">{
+                return
         }</span>
-        <span class="cov0" title="0">return t.curReader, nil</span>
+        <span class="cov0" title="0">f.mu.Lock()
+        defer f.mu.Unlock()
+        f.activeReader = false</span>
 }
 
-// MsgWriter returns an io.WriterCloser that is good for writing exactly one
-// netconf message.
-//
-// One one writer can be used at one time and calling this function with an
-// existing, unclosed,  writer will result in an error.
-func (t *Framer) MsgWriter() (io.WriteCloser, error) <span class="cov0" title="0">{
-        if t.curWriter != nil &amp;&amp; !t.curWriter.isClosed() </span><span class="cov0" title="0">{
-                return nil, ErrExistingWriter
+func (f *Framer) closeWriter() <span class="cov1" title="2">{
+        if f == nil </span><span class="cov1" title="2">{
+                return
         }</span>
+        <span class="cov0" title="0">f.mu.Lock()
+        defer f.mu.Unlock()
+        f.activeWriter = false</span>
+}
 
-        <span class="cov0" title="0">if t.upgraded </span><span class="cov0" title="0">{
-                t.curWriter = &amp;chunkWriter{w: t.bw}
-        }</span> else<span class="cov0" title="0"> {
-                t.curWriter = &amp;eomWriter{w: t.bw}
+func (f *Framer) MsgReader() (io.ReadCloser, error) <span class="cov0" title="0">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+
+        if f.activeReader </span><span class="cov0" title="0">{
+                return nil, ErrStreamBusy
         }</span>
-        <span class="cov0" title="0">return t.curWriter, nil</span>
+        <span class="cov0" title="0">f.activeReader = true
+
+        if f.chunkFraming </span><span class="cov0" title="0">{
+                return &amp;chunkedReader{
+                        r: f.br,
+                        f: f,
+                }, nil
+        }</span>
+        <span class="cov0" title="0">return &amp;markedReader{
+                r: f.br,
+                f: f,
+        }, nil</span>
+}
+
+func (f *Framer) MsgWriter() (io.WriteCloser, error) <span class="cov0" title="0">{
+        f.mu.Lock()
+        defer f.mu.Unlock()
+
+        if f.activeWriter </span><span class="cov0" title="0">{
+                return nil, ErrStreamBusy
+        }</span>
+        <span class="cov0" title="0">f.activeWriter = true
+
+        if f.chunkFraming </span><span class="cov0" title="0">{
+                return &amp;chunkedWriter{
+                        w: f.bw,
+                        f: f,
+                }, nil
+        }</span>
+        <span class="cov0" title="0">return &amp;markedWriter{
+                w: f.bw,
+                f: f,
+        }, nil</span>
 }
 
 var endOfChunks = []byte("\n##\n")
 
-// Defined in https://www.rfc-editor.org/rfc/rfc6242#section-4.2
-const maxChunk = math.MaxUint32
+// ErrMalformedChunk represents a message that invalid as defined in the chunk
+// framing in RFC6242
+var ErrMalformedChunk = errors.New("netconf: invalid chunk")
 
-type chunkReader struct {
+type chunkedReader struct {
+        f         *Framer
         r         *bufio.Reader
         chunkLeft uint32
+        eof       bool
 }
 
-func (r *chunkReader) readHeader() error <span class="cov6" title="52">{
-        peeked, err := r.r.Peek(4)
-        switch err </span>{
-        case nil:<span class="cov5" title="30">
-                break</span>
-        case io.EOF:<span class="cov5" title="22">
-                return io.ErrUnexpectedEOF</span>
-        default:<span class="cov0" title="0">
-                return err</span>
+func (r *chunkedReader) readHeader() (uint32, error) <span class="cov6" title="59">{
+        // Peek at marker to check for "\n#"
+        marker, err := r.r.Peek(4)
+        if err != nil </span><span class="cov4" title="12">{
+                if errors.Is(err, io.EOF) </span><span class="cov4" title="12">{
+                        return 0, io.ErrUnexpectedEOF
+                }</span>
+                <span class="cov0" title="0">return 0, err</span>
         }
 
-        <span class="cov5" title="30">if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
-                return err
+        <span class="cov6" title="47">if marker[0] != '\n' || marker[1] != '#' </span><span class="cov4" title="10">{
+                return 0, ErrMalformedChunk
         }</span>
 
-        // make sure the preamble of `\n#` which is used for both the start of a
-        // chuck and the end-of-chunk marker is valid.
-        <span class="cov5" title="30">if peeked[0] != '\n' || peeked[1] != '#' </span><span class="cov2" title="4">{
-                return ErrMalformedChunk
-        }</span>
-
-        // check to see if we are at the end of the read
-        <span class="cov5" title="26">if peeked[2] == '#' &amp;&amp; peeked[3] == '\n' </span><span class="cov3" title="8">{
-                if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
-                        return err
+        <span class="cov6" title="37">if marker[2] == '#' &amp;&amp; marker[3] == '\n' </span><span class="cov4" title="9">{
+                // Discard the end-of-chunks marker
+                if _, err := r.r.Discard(4); err != nil </span><span class="cov0" title="0">{
+                        return 0, err
                 }</span>
-                // not strictly needed but it is the responsibility of this function to
-                // update chunkLeft.
-                <span class="cov3" title="8">r.chunkLeft = 0
-                return io.EOF</span>
+
+                <span class="cov4" title="9">return 0, nil</span> // Signal end of message with 0 chunk size
         }
 
-        <span class="cov5" title="18">var n uint32
-        for </span><span class="cov6" title="56">{
-                c, err := r.r.ReadByte()
-                if err != nil </span><span class="cov0" title="0">{
-                        return err
-                }</span>
-
-                <span class="cov6" title="56">if c == '\n' </span><span class="cov4" title="16">{
-                        break</span>
-                }
-                <span class="cov6" title="40">if c &lt; '0' || c &gt; '9' </span><span class="cov1" title="2">{
-                        return ErrMalformedChunk
-                }</span>
-                <span class="cov6" title="38">n = n*10 + uint32(c) - '0'</span>
-        }
-
-        <span class="cov4" title="16">if n &lt; 1 || n &gt; maxChunk </span><span class="cov2" title="4">{
-                return ErrMalformedChunk
+        // Discard the "\n#" preamble
+        <span class="cov5" title="28">if _, err := r.r.Discard(2); err != nil </span><span class="cov0" title="0">{
+                return 0, err
         }</span>
 
-        <span class="cov4" title="12">r.chunkLeft = n
-        return nil</span>
+        <span class="cov5" title="28">line, err := r.r.ReadSlice('\n')
+        if err != nil </span><span class="cov1" title="1">{
+                if err == io.EOF </span><span class="cov1" title="1">{
+                        return 0, io.ErrUnexpectedEOF
+                }</span>
+                // ReadSlice returns err if '\n' is missing (EOF or buffer full)
+                <span class="cov0" title="0">return 0, err</span>
+        }
+
+        // Cut off the '\n' from the end for parsing
+        <span class="cov5" title="27">digits := line[:len(line)-1]
+
+        // If the line was just "\n", digits is empty (chunks must have size)
+        if len(digits) == 0 </span><span class="cov0" title="0">{
+                return 0, ErrMalformedChunk
+        }</span>
+
+        <span class="cov5" title="27">var chunkSize uint32
+        for _, c := range digits </span><span class="cov7" title="82">{
+                if c &lt; '0' || c &gt; '9' </span><span class="cov2" title="4">{
+                        return 0, ErrMalformedChunk
+                }</span>
+
+                <span class="cov7" title="78">if chunkSize &gt; math.MaxUint32/10 </span><span class="cov1" title="1">{
+                        return 0, ErrMalformedChunk
+                }</span>
+                <span class="cov7" title="77">chunkSize = chunkSize * 10
+
+                digit := uint32(c - '0')
+                if chunkSize &gt; math.MaxUint32-digit </span><span class="cov2" title="3">{
+                        return 0, ErrMalformedChunk
+                }</span>
+                <span class="cov7" title="74">chunkSize += digit</span>
+        }
+
+        <span class="cov5" title="19">if chunkSize == 0 </span><span class="cov2" title="4">{
+                return 0, ErrMalformedChunk
+        }</span>
+
+        <span class="cov4" title="15">return chunkSize, nil</span>
 }
 
-func (r *chunkReader) Read(p []byte) (int, error) <span class="cov4" title="16">{
+func (r *chunkedReader) Read(p []byte) (int, error) <span class="cov4" title="16">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
-        // make sure we can't try to read more than the max chunk
-        <span class="cov4" title="16">if len(p) &gt; maxChunk </span><span class="cov0" title="0">{
-                p = p[:maxChunk]
+
+        <span class="cov4" title="16">if len(p) &gt; math.MaxUint32 </span><span class="cov0" title="0">{
+                p = p[:math.MaxUint32]
         }</span>
 
-        // done with existing chunk so grab the next one
+        // If we have no bytes left in the current chunk, we must read a new header
         <span class="cov4" title="16">if r.chunkLeft &lt;= 0 </span><span class="cov4" title="16">{
-                if err := r.readHeader(); err != nil </span><span class="cov4" title="10">{
+                chunkSize, err := r.readHeader()
+                if err != nil </span><span class="cov3" title="6">{
                         return 0, err
                 }</span>
+
+                // Zero chunk size indicates "End of Chunks" (\n##\n)
+                <span class="cov4" title="10">if chunkSize == 0 </span><span class="cov2" title="4">{
+                        r.eof = true
+                        return 0, io.EOF
+                }</span>
+                <span class="cov3" title="6">r.chunkLeft = chunkSize</span>
         }
 
-        // XXX: This potential down conversion should be safe cause we resize p
-        // above.  Hopefully no one is trying to read 4GB in one call.
-        <span class="cov3" title="6">if uint32(len(p)) &gt; r.chunkLeft </span><span class="cov3" title="6">{
-                p = p[:r.chunkLeft]
-        }</span>
-
-        <span class="cov3" title="6">n, err := r.r.Read(p)
+        <span class="cov3" title="6">toRead := min(uint32(len(p)), r.chunkLeft)
+        n, err := r.r.Read(p[:toRead])
         r.chunkLeft -= uint32(n)
+
         return n, err</span>
 }
 
-func (r *chunkReader) ReadByte() (byte, error) <span class="cov7" title="120">{
+func (r *chunkedReader) ReadByte() (byte, error) <span class="cov7" title="120">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
-        // done with existing chunck so grab the next one
+        // done with existing chunk so grab the next one
         <span class="cov7" title="120">if r.chunkLeft &lt;= 0 </span><span class="cov4" title="16">{
-                if err := r.readHeader(); err != nil </span><span class="cov4" title="10">{
+                n, err := r.readHeader()
+                if err != nil </span><span class="cov3" title="6">{
                         return 0, err
                 }</span>
+                <span class="cov4" title="10">if n == 0 </span><span class="cov2" title="4">{
+                        r.eof = true
+                        return 0, io.EOF
+                }</span>
+                <span class="cov3" title="6">r.chunkLeft = n</span>
         }
 
         <span class="cov7" title="110">b, err := r.r.ReadByte()
@@ -1565,74 +1581,122 @@ func (r *chunkReader) ReadByte() (byte, error) <span class="cov7" title="120">{
         return b, nil</span>
 }
 
-// Close will read the rest of the frame and consume it including
-// the end-of-frame markers if we haven't already done so.
-func (r *chunkReader) Close() error <span class="cov5" title="20">{
-        // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov5" title="20">{ r.r = nil }</span>()
+func (r *chunkedReader) Close() error <span class="cov5" title="20">{
+        if r.r == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov5" title="20">defer func() </span><span class="cov5" title="20">{
+                r.r = nil
+                r.f.closeReader()
+        }</span>()
 
-        // read all remaining chunks until we get to the end of the frame.
-        <span class="cov5" title="20">for </span><span class="cov5" title="20">{
-                if r.chunkLeft &lt;= 0 </span><span class="cov5" title="20">{
-                        // readHeader return io.EOF when it encounter the end-of-frame
-                        // marker ("\n##\n")
-                        err := r.readHeader()
-                        switch </span>{
-                        case err == nil:<span class="cov0" title="0">
-                                break</span>
-                        case errors.Is(err, io.EOF):<span class="cov0" title="0">
-                                return nil</span>
-                        default:<span class="cov5" title="20">
-                                return err</span>
-                        }
+        // If we have already read to the end, nothing to do
+        <span class="cov5" title="20">if r.eof </span><span class="cov3" title="8">{
+                return nil
+        }</span>
+
+        // Drain the rest of the chunks until we hit the end-of-chunks marker
+        <span class="cov4" title="12">for </span><span class="cov4" title="12">{
+                if r.chunkLeft &lt;= 0 </span><span class="cov4" title="12">{
+                        // readHeader return 0, nil when it hits the end-of-chunks
+                        n, err := r.readHeader()
+                        if err != nil </span><span class="cov4" title="12">{
+                                return err
+                        }</span>
+
+                        <span class="cov0" title="0">if n == 0 </span><span class="cov0" title="0">{
+                                return nil
+                        }</span>
+
+                        <span class="cov0" title="0">r.chunkLeft = n</span>
                 }
 
-                <span class="cov0" title="0">n, err := r.r.Discard(int(r.chunkLeft))
-                if err != nil </span><span class="cov0" title="0">{
-                        return err
-                }</span>
-                <span class="cov0" title="0">r.chunkLeft -= uint32(n)</span>
+                <span class="cov0" title="0">for r.chunkLeft &gt; 0 </span><span class="cov0" title="0">{
+                        // Protect against int overflow on 32-bit systems
+                        toDiscard := int(r.chunkLeft)
+                        if uint(r.chunkLeft) &gt; uint(math.MaxInt) </span><span class="cov0" title="0">{
+                                toDiscard = math.MaxInt
+                        }</span>
+
+                        <span class="cov0" title="0">n, err := r.r.Discard(toDiscard)
+                        r.chunkLeft -= uint32(n)
+                        if err != nil </span><span class="cov0" title="0">{
+                                return err
+                        }</span>
+                }
         }
 }
 
-type chunkWriter struct {
+type chunkedWriter struct {
+        f *Framer
         w *bufio.Writer
 }
 
-func (w *chunkWriter) Write(p []byte) (int, error) <span class="cov1" title="2">{
+func (w *chunkedWriter) Write(p []byte) (int, error) <span class="cov1" title="2">{
         if w.w == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov1" title="2">if _, err := fmt.Fprintf(w.w, "\n#%d\n", len(p)); err != nil </span><span class="cov0" title="0">{
-                return 0, err
-        }</span>
+        <span class="cov1" title="2">totalWritten := 0
+        for len(p) &gt; 0 </span><span class="cov1" title="2">{
+                // Cap chunk size at MaxInt32 (~2GB) to avoid overflow issues on all
+                // architectures.
+                //
+                // XXX: Should we default to smaller chunk sizes.  Default
+                // buffer in a bufio writer is 4k and seems resonable?  Check what other
+                // chunked implementations do?
+                chunkSize := len(p)
+                if chunkSize &gt; math.MaxInt32 </span><span class="cov0" title="0">{
+                        chunkSize = math.MaxInt32
+                }</span>
 
-        <span class="cov1" title="2">return w.w.Write(p)</span>
+                // Write chunk header
+                <span class="cov1" title="2">if _, err := fmt.Fprintf(w.w, "\n#%d\n", chunkSize); err != nil </span><span class="cov0" title="0">{
+                        return totalWritten, err
+                }</span>
+
+                // Note: we are not checking for a partial writes as bufio.Writer
+                // will only return a short write if the underlying writer returns an
+                // error.
+                <span class="cov1" title="2">n, err := w.w.Write(p[:chunkSize])
+                totalWritten += n
+                if err != nil </span><span class="cov0" title="0">{
+                        return totalWritten, err
+                }</span>
+
+                // Advance
+                <span class="cov1" title="2">p = p[n:]</span>
+        }
+
+        <span class="cov1" title="2">return totalWritten, nil</span>
 }
 
-func (w *chunkWriter) Close() error <span class="cov1" title="1">{
-        // poison the writer to prevent writes after close
-        defer func() </span><span class="cov1" title="1">{ w.w = nil }</span>()
+func (w *chunkedWriter) Close() error <span class="cov1" title="1">{
+        if w.w == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov1" title="1">defer func() </span><span class="cov1" title="1">{
+                w.w = nil
+                w.f.closeWriter()
+        }</span>()
+
+        // write the end-of-chunks marker
         <span class="cov1" title="1">if _, err := w.w.Write(endOfChunks); err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
         <span class="cov1" title="1">return w.w.Flush()</span>
 }
 
-func (w *chunkWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
-
 var endOfMsg = []byte("]]&gt;]]&gt;")
 
-type eomReader struct {
-        r *bufio.Reader
+type markedReader struct {
+        f   *Framer
+        r   *bufio.Reader
+        eof bool
 }
 
-func (r *eomReader) Read(p []byte) (int, error) <span class="cov3" title="7">{
-        // This probably isn't optimal however it looks like xml.Decoder
-        // mainly just called ReadByte() and this probably won't ever be
-        // used.
-        for i := 0; i &lt; len(p); i++ </span><span class="cov8" title="310">{
+func (r *markedReader) Read(p []byte) (int, error) <span class="cov3" title="7">{
+        for i := 0; i &lt; len(p); i++ </span><span class="cov9" title="310">{
                 b, err := r.ReadByte()
                 if err != nil </span><span class="cov3" title="7">{
                         return i, err
@@ -1642,21 +1706,25 @@ func (r *eomReader) Read(p []byte) (int, error) <span class="cov3" title="7">{
         <span class="cov0" title="0">return len(p), nil</span>
 }
 
-func (r *eomReader) ReadByte() (byte, error) <span class="cov10" title="640">{
+func (r *markedReader) ReadByte() (byte, error) <span class="cov10" title="624">{
         if r.r == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov10" title="640">b, err := r.r.ReadByte()
-        if err != nil </span><span class="cov4" title="12">{
-                if err == io.EOF </span><span class="cov4" title="12">{
+        <span class="cov10" title="624">if r.eof </span><span class="cov0" title="0">{
+                return 0, io.EOF
+        }</span>
+
+        <span class="cov10" title="624">b, err := r.r.ReadByte()
+        if err != nil </span><span class="cov2" title="4">{
+                if err == io.EOF </span><span class="cov2" title="4">{
                         return b, io.ErrUnexpectedEOF
                 }</span>
                 <span class="cov0" title="0">return b, err</span>
         }
 
         // look for the end of the message marker
-        <span class="cov9" title="628">if b == endOfMsg[0] </span><span class="cov5" title="24">{
+        <span class="cov9" title="620">if b == endOfMsg[0] </span><span class="cov5" title="22">{
                 peeked, err := r.r.Peek(len(endOfMsg) - 1)
                 if err != nil </span><span class="cov2" title="4">{
                         if err == io.EOF </span><span class="cov2" title="4">{
@@ -1666,52 +1734,64 @@ func (r *eomReader) ReadByte() (byte, error) <span class="cov10" title="640">{
                 }
 
                 // check if we are at the end of the message
-                <span class="cov5" title="20">if bytes.Equal(peeked, endOfMsg[1:]) </span><span class="cov4" title="12">{
+                <span class="cov5" title="18">if bytes.Equal(peeked, endOfMsg[1:]) </span><span class="cov4" title="10">{
                         if _, err := r.r.Discard(len(endOfMsg) - 1); err != nil </span><span class="cov0" title="0">{
                                 return 0, err
                         }</span>
 
-                        <span class="cov4" title="12">return 0, io.EOF</span>
+                        <span class="cov4" title="10">r.eof = true
+                        return 0, io.EOF</span>
                 }
         }
 
-        <span class="cov9" title="612">return b, nil</span>
+        <span class="cov9" title="606">return b, nil</span>
 }
 
-// Close will read the rest of the frame and consume it including
-// the end-of-frame marker.
-func (r *eomReader) Close() error <span class="cov4" title="14">{
-        // poison the reader so that it can no longer be used
-        defer func() </span><span class="cov4" title="14">{ r.r = nil }</span>()
+func (r *markedReader) Close() error <span class="cov4" title="14">{
+        if r.r == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov4" title="14">defer func() </span><span class="cov4" title="14">{
+                r.r = nil
+                r.f.closeReader()
+        }</span>()
 
-        <span class="cov4" title="14">var err error
-        for err == nil </span><span class="cov5" title="20">{
+        // If we have already read to the end, nothing to do
+        <span class="cov4" title="14">if r.eof </span><span class="cov4" title="10">{
+                return nil
+        }</span>
+
+        <span class="cov2" title="4">var err error
+        for err == nil </span><span class="cov2" title="4">{
                 _, err = r.ReadByte()
-                if errors.Is(err, io.EOF) </span><span class="cov1" title="2">{
+                if errors.Is(err, io.EOF) </span><span class="cov0" title="0">{
                         return nil
                 }</span>
         }
-        <span class="cov4" title="12">return err</span>
+        <span class="cov2" title="4">return err</span>
 }
 
-type eomWriter struct {
+type markedWriter struct {
+        f *Framer
         w *bufio.Writer
 }
 
-func (w *eomWriter) Write(p []byte) (int, error) <span class="cov1" title="1">{
+func (w *markedWriter) Write(p []byte) (int, error) <span class="cov1" title="1">{
         if w.w == nil </span><span class="cov0" title="0">{
                 return 0, ErrInvalidIO
         }</span>
+
         <span class="cov1" title="1">return w.w.Write(p)</span>
 }
 
-func (w *eomWriter) Close() error <span class="cov1" title="1">{
-        // poison the writer to prevent writes after close
-        defer func() </span><span class="cov1" title="1">{ w.w = nil }</span>()
-
-        <span class="cov1" title="1">if err := w.w.WriteByte('\n'); err != nil </span><span class="cov0" title="0">{
-                return err
+func (w *markedWriter) Close() error <span class="cov1" title="1">{
+        if w.w == nil </span><span class="cov0" title="0">{
+                return nil
         }</span>
+        <span class="cov1" title="1">defer func() </span><span class="cov1" title="1">{
+                w.w = nil
+                w.f.closeWriter()
+        }</span>()
 
         <span class="cov1" title="1">if _, err := w.w.Write(endOfMsg); err != nil </span><span class="cov0" title="0">{
                 return err
@@ -1719,8 +1799,6 @@ func (w *eomWriter) Close() error <span class="cov1" title="1">{
 
         <span class="cov1" title="1">return w.w.Flush()</span>
 }
-
-func (w *eomWriter) isClosed() bool <span class="cov0" title="0">{ return w.w == nil }</span>
 </pre>
 		
 		<pre class="file" id="file5" style="display: none">package ssh

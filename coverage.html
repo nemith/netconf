@@ -67,7 +67,7 @@
 				
 				<option value="file5">nemith.io/netconf/transport/ssh/ssh.go (82.2%)</option>
 				
-				<option value="file6">nemith.io/netconf/transport/tls/tls.go (0.0%)</option>
+				<option value="file6">nemith.io/netconf/transport/tls/tls.go (90.9%)</option>
 				
 				</select>
 			</div>
@@ -1971,22 +1971,34 @@ type Transport struct {
         *framer
 }
 
-// Dial will connect to a server via TLS and retuns a Transport.
-func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Transport, error) <span class="cov0" title="0">{
+// Dial will connect to a NETCONF tls port and creates a new Transport.  It's
+// used as a convenience function and essentially is the same as:
+//
+//        c, err := tls.Dial(network, addr, config)
+//        if err != nil { /* ... handle error ... */ }
+//        t, err := NewTransport(c)
+//
+// When the transport is closed the underlying connection is also closed.
+func Dial(ctx context.Context, network, addr string, config *tls.Config) (*Transport, error) <span class="cov10" title="3">{
         var d net.Dialer
         conn, err := d.DialContext(ctx, network, addr)
         if err != nil </span><span class="cov0" title="0">{
                 return nil, err
         }</span>
 
-        <span class="cov0" title="0">tlsConn := tls.Client(conn, config)
-        return NewTransport(tlsConn), nil</span>
+        <span class="cov10" title="3">tlsConn := tls.Client(conn, config)
 
+        if err := tlsConn.HandshakeContext(ctx); err != nil </span><span class="cov1" title="1">{
+                _ = tlsConn.Close()
+                return nil, err
+        }</span>
+
+        <span class="cov6" title="2">return NewTransport(tlsConn), nil</span>
 }
 
 // NewTransport takes an already connected tls transport and returns a new
 // Transport.
-func NewTransport(conn *tls.Conn) *Transport <span class="cov0" title="0">{
+func NewTransport(conn *tls.Conn) *Transport <span class="cov6" title="2">{
         return &amp;Transport{
                 conn:   conn,
                 framer: transport.NewFramer(conn, conn),
@@ -1994,7 +2006,7 @@ func NewTransport(conn *tls.Conn) *Transport <span class="cov0" title="0">{
 }</span>
 
 // Close will close the transport and the underlying TLS connection.
-func (t *Transport) Close() error <span class="cov0" title="0">{
+func (t *Transport) Close() error <span class="cov6" title="2">{
         return t.conn.Close()
 }</span>
 </pre>

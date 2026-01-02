@@ -92,7 +92,7 @@ func setupSSH(t *testing.T) *netconf.Session {
 func TestSSHOpen(t *testing.T) {
 	session := setupSSH(t)
 	assert.NotZero(t, session.SessionID())
-	assert.NotEmpty(t, session.ServerCapabilities())
+	assert.NotZero(t, session.ServerCaps().Len())
 	err := session.Close(context.Background())
 	assert.NoError(t, err)
 }

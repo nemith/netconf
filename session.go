@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -345,6 +346,29 @@ func (s *Session) Call(ctx context.Context, req any, resp any) error {
 	if err := reply.Err(); err != nil {
 		return err
 	}
+
+	if err := reply.Decode(&resp); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *Session) CallWrap(ctx context.Context, req any, resp any) error {
+	reply, err := s.Do(ctx, &req)
+	if err != nil {
+		return err
+	}
+
+	if err := reply.Err(); err != nil {
+		return err
+	}
+
+	reply.Body = bytes.Join([][]byte{
+		[]byte("<wrap>"),
+		reply.Body,
+		[]byte("</wrap>"),
+	}, nil)
 
 	if err := reply.Decode(&resp); err != nil {
 		return err

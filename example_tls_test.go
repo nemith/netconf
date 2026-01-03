@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nemith.io/netconf"
+	"nemith.io/netconf/rpc"
 	nctls "nemith.io/netconf/transport/tls"
 )
 
@@ -67,7 +68,7 @@ func Example_tls() {
 	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	cfg, err := session.GetConfig(ctx, "running")
+	cfg, err := rpc.GetConfig{Source: rpc.Running}.Exec(ctx, session)
 	if err != nil {
 		panic(err)
 	}

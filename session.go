@@ -1,6 +1,7 @@
 package netconf
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"log"
 	"net"
 	"slices"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -16,11 +18,15 @@ import (
 	"nemith.io/netconf/transport"
 )
 
+const (
+	NetconfNamespace      = "urn:ietf:params:xml:ns:netconf:base:1.0"
+	NotificationNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
+)
+
 var ErrClosed = errors.New("closed connection")
 
 type sessionConfig struct {
-	clientCaps          []string
-	notificationHandler NotificationHandler
+	clientCaps []string
 }
 
 type SessionOption interface {
@@ -37,36 +43,19 @@ func WithCapability(capabilities ...string) SessionOption {
 	return capabilityOpt(capabilities)
 }
 
-type notificationHandlerOpt NotificationHandler
-
-func (o notificationHandlerOpt) apply(cfg *sessionConfig) {
-	cfg.notificationHandler = NotificationHandler(o)
-}
-
-func WithNotificationHandler(nh NotificationHandler) SessionOption {
-	return notificationHandlerOpt(nh)
-}
-
 // Session is represents a netconf session to a one given device.
 type Session struct {
 	tr        transport.Transport
 	sessionID uint64
 	seq       atomic.Uint64
 
-	clientCaps          CapabilitySet
-	serverCaps          CapabilitySet
-	notificationHandler NotificationHandler
+	clientCaps CapabilitySet
+	serverCaps CapabilitySet
 
 	mu      sync.Mutex
-	reqs    map[uint64]*req
+	reqs    map[string]*pendingReq
 	closing bool
 }
-
-// NotificationHandler function allows to work with received notifications.
-// A NotificationHandler function can be passed in as an option when calling Open method of Session object
-// A typical use of the NofificationHandler function is to retrieve notifications once they are received so
-// that they can be parsed and/or stored somewhere.
-type NotificationHandler func(msg Notification)
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	cfg := sessionConfig{
@@ -78,10 +67,9 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	}
 
 	s := &Session{
-		tr:                  transport,
-		clientCaps:          NewCapabilitySet(cfg.clientCaps...),
-		reqs:                make(map[uint64]*req),
-		notificationHandler: cfg.notificationHandler,
+		tr:         transport,
+		clientCaps: NewCapabilitySet(cfg.clientCaps...),
+		reqs:       make(map[string]*pendingReq),
 	}
 	return s
 }
@@ -97,26 +85,42 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 		return nil, err
 	}
 
-	go s.recv()
+	go s.recvLoop()
 	return s, nil
 }
 
 // handshake exchanges handshake messages and reports if there are any errors.
 func (s *Session) handshake() error {
-	clientMsg := helloMsg{
+	clientMsg := HelloMsg{
 		Capabilities: slices.Collect(s.clientCaps.All()),
 	}
-	if err := s.writeMsg(&clientMsg); err != nil {
+
+	w, err := s.tr.MsgWriter()
+	if err != nil {
+		return fmt.Errorf("failed to get hello message writer: %w", err)
+	}
+	defer func() {
+		// TODO: expose this error
+		_ = w.Close()
+	}()
+
+	if err := xml.NewEncoder(w).Encode(&clientMsg); err != nil {
 		return fmt.Errorf("failed to write hello message: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return fmt.Errorf("failed to close hello message writer: %w", err)
 	}
 
 	r, err := s.tr.MsgReader()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get hello message reader: %w", err)
 	}
-	defer r.Close() // nolint:errcheck // TODO: catch and log err
+	defer func() {
+		// TODO: expose this error
+		_ = r.Close()
+	}()
 
-	var serverMsg helloMsg
+	var serverMsg HelloMsg
 	if err := xml.NewDecoder(r).Decode(&serverMsg); err != nil {
 		return fmt.Errorf("failed to read server hello message: %w", err)
 	}
@@ -134,8 +138,7 @@ func (s *Session) handshake() error {
 
 	// upgrade the transport if we are on a larger version and the transport
 	// supports it.
-	const baseCap11 = baseCap + ":1.1"
-	if s.serverCaps.Has(baseCap11) && s.clientCaps.Has(baseCap11) {
+	if s.serverCaps.Has(CapNetConf11) && s.clientCaps.Has(CapNetConf11) {
 		if upgrader, ok := s.tr.(interface{ Upgrade() }); ok {
 			upgrader.Upgrade()
 		}
@@ -176,178 +179,213 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) {
 	}
 }
 
-type req struct {
-	reply chan Reply
+type pendingReq struct {
+	reply chan *Response
 	ctx   context.Context
 }
 
-func (s *Session) recvMsg() error {
-	r, err := s.tr.MsgReader()
-	if err != nil {
-		return err
-	}
-	defer r.Close() // nolint:errcheck // TODO: catch error and log
-	dec := xml.NewDecoder(r)
+type replyReader struct {
+	io.Reader
+	closer io.Closer
 
-	root, err := startElement(dec)
-	if err != nil {
-		return err
-	}
-
-	const (
-		ncNamespace    = "urn:ietf:params:xml:ns:netconf:base:1.0"
-		notifNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
-	)
-
-	switch root.Name {
-	case xml.Name{Space: notifNamespace, Local: "notification"}:
-		if s.notificationHandler == nil {
-			return nil
-		}
-		var notif Notification
-		if err := dec.DecodeElement(&notif, root); err != nil {
-			return fmt.Errorf("failed to decode notification message: %w", err)
-		}
-		s.notificationHandler(notif)
-	case xml.Name{Space: ncNamespace, Local: "rpc-reply"}:
-		var reply Reply
-		if err := dec.DecodeElement(&reply, root); err != nil {
-			// What should we do here?  Kill the connection?
-			return fmt.Errorf("failed to decode rpc-reply message: %w", err)
-		}
-		ok, req := s.req(reply.MessageID)
-		if !ok {
-			return fmt.Errorf("cannot find reply channel for message-id: %d", reply.MessageID)
-		}
-
-		select {
-		case req.reply <- reply:
-			return nil
-		case <-req.ctx.Done():
-			return fmt.Errorf("message %d context canceled: %s", reply.MessageID, req.ctx.Err().Error())
-		}
-	default:
-		return fmt.Errorf("unknown message type: %q", root.Name.Local)
-	}
-	return nil
+	done chan struct{}
+	once sync.Once
 }
 
-// recv is the main receive loop.  It runs concurrently to be able to handle
-// interleaved messages (like notifications).
-func (s *Session) recv() {
+func (r *replyReader) Close() error {
 	var err error
-	var opErr *net.OpError
+	r.once.Do(func() {
+		err = r.closer.Close()
+		close(r.done)
+	})
+	return err
+}
 
+// recvLoop is the main receive loop.  It runs concurrently to be able to handle
+// interleaved messages (like notifications).
+func (s *Session) recvLoop() {
+	// buffer used to "peel" into the message enough to read the first element
+	// (i.e <rpc-reply> or <notification>)
+	buf := make([]byte, 4096)
 	for {
-		err = s.recvMsg()
-		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.As(err, &opErr) {
+		if err := s.recvMsg(buf); err != nil {
+			log.Printf("netconf: failed to receive message: %v", err)
 			break
 		}
-		if err != nil {
-			log.Printf("netconf: failed to read incoming message: %v", err)
-		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
-	// Close all outstanding requests
+	// Final cleanup when the loop exits
+	s.mu.Lock()
 	for _, req := range s.reqs {
 		close(req.reply)
 	}
+	s.mu.Unlock()
+	// TODO: expose this error
+	_ = s.tr.Close()
 
 	if !s.closing {
 		log.Printf("netconf: connection closed unexpectedly")
 	}
 }
 
-func (s *Session) req(msgID uint64) (bool, *req) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	req, ok := s.reqs[msgID]
-	if !ok {
-		return false, nil
+func getMessageID(attrs []xml.Attr) string {
+	for _, attr := range attrs {
+		if attr.Name.Local == "message-id" {
+			return attr.Value
+		}
 	}
-	delete(s.reqs, msgID)
-	return true, req
+	return ""
 }
 
-func (s *Session) writeMsg(v any) error {
-	w, err := s.tr.MsgWriter()
+func (s *Session) recvMsg(buf []byte) error {
+	r, err := s.tr.MsgReader()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		// TODO: expose this error
+		_ = r.Close()
+	}()
 
-	if err := xml.NewEncoder(w).Encode(v); err != nil {
+	// 3. Peek/Read the start of the message
+	n, err := r.Read(buf)
+	if err != nil && !errors.Is(err, io.EOF) {
+		// It is okay to return EOF here; recv() handles the check.
 		return err
 	}
-	return w.Close()
-}
 
-func (s *Session) send(ctx context.Context, msg *request) (chan Reply, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	chunk := buf[:n]
+	decoder := xml.NewDecoder(bytes.NewReader(chunk))
 
-	if err := s.writeMsg(msg); err != nil {
-		return nil, err
+	startElem, err := startElement(decoder)
+	if err != nil {
+		return fmt.Errorf("failed to parse message start: %w", err)
 	}
 
-	// cap of 1 makes sure we don't block on send
-	ch := make(chan Reply, 1)
-	s.reqs[msg.MessageID] = &req{
+	msgReader := io.MultiReader(bytes.NewReader(chunk), r)
+
+	switch startElem.Name {
+	case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:
+		msgID := getMessageID(startElem.Attr)
+		if msgID == "" {
+			log.Printf("netconf: rpc-reply missing message-id")
+			return nil // Continue loop
+		}
+
+		s.mu.Lock()
+		req, ok := s.reqs[msgID]
+		delete(s.reqs, msgID)
+		s.mu.Unlock()
+
+		if !ok {
+			log.Printf("netconf: unexpected rpc-reply with message-id %s (possible timeout?)", msgID)
+			return nil // Continue loop
+		}
+
+		readDone := make(chan struct{})
+		reader := &replyReader{
+			Reader: msgReader,
+			closer: r, // The raw transport reader
+			done:   readDone,
+		}
+
+		select {
+		case req.reply <- &Response{
+			ReadCloser: reader,
+			MessageID:  msgID,
+			Attributes: startElem.Attr,
+		}:
+			// We wait for the user to call Close() on the replyReader.
+			<-readDone
+			return nil
+
+		case <-req.ctx.Done():
+			return nil
+		}
+
+	default:
+		return fmt.Errorf("netconf: unknown message type: %s", startElem.Name.Local)
+	}
+}
+
+// Do issues a rpc message for the given Request.  This is a low-level method
+// that doesn't try to decode the response including any rpc-errors.
+func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
+	msgID := strconv.FormatUint(s.seq.Add(1), 10)
+	req.RPC.MessageID = msgID
+
+	// Setup channel
+	ch := make(chan *Response, 1)
+	s.mu.Lock()
+	s.reqs[msgID] = &pendingReq{
 		reply: ch,
 		ctx:   ctx,
 	}
+	s.mu.Unlock()
 
-	return ch, nil
-}
+	// Cleanup if context triggers before send/recv
+	defer func() {
+		s.mu.Lock()
+		delete(s.reqs, msgID)
+		s.mu.Unlock()
+	}()
 
-// Do issues a rpc call for the given NETCONF operation returning a Reply.  RPC
-// errors (i.e erros in the `<rpc-errors>` section of the `<rpc-reply>`) are
-// converted into go errors automatically.  Instead use `reply.Err()` or
-// `reply.RPCErrors` to access the errors and/or warnings.
-func (s *Session) Do(ctx context.Context, req any) (*Reply, error) {
-	msg := &request{
-		MessageID: s.seq.Add(1),
-		Operation: req,
-	}
-
-	ch, err := s.send(ctx, msg)
+	w, err := s.tr.MsgWriter()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get message writer: %w", err)
+	}
+	if err := xml.NewEncoder(w).Encode(req.RPC); err != nil {
+		_ = w.Close() // try to close anyway
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("failed to flush request: %w", err)
 	}
 
-	// wait for reply or context to be cancelled.
+	// Wait for the response
 	select {
-	case reply, ok := <-ch:
+	case resp, ok := <-ch:
 		if !ok {
 			return nil, ErrClosed
 		}
-		return &reply, nil
+		return resp, nil
 	case <-ctx.Done():
-		// remove any existing request
-		s.mu.Lock()
-		delete(s.reqs, msg.MessageID)
-		s.mu.Unlock()
-
 		return nil, ctx.Err()
 	}
 }
 
-// Call issues a rpc message with `req` as the body and decodes the reponse into
-// a pointer at `resp`.  Any Call errors are presented as a go error.
-func (s *Session) Call(ctx context.Context, req any, resp any) error {
-	reply, err := s.Do(ctx, &req)
+// Exec issues a rpc message with `req` as the body and decodes the response into
+// a pointer at `resp`.  Resp must include the full <rpc-reply> structure.
+func (s *Session) Exec(ctx context.Context, operation any, reply any) error {
+	req := Request{RPC: RPC{Operation: operation}}
+
+	resp, err := s.Do(ctx, &req)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		_ = resp.Close()
+	}()
 
-	if err := reply.Err(); err != nil {
-		return err
+	raw, err := io.ReadAll(resp)
+	if err != nil {
+		return fmt.Errorf("failed to read reply: %w", err)
 	}
 
-	if err := reply.Decode(&resp); err != nil {
-		return err
+	var rpcReply RPCReply
+	if err := xml.Unmarshal(raw, &rpcReply); err != nil {
+		return fmt.Errorf("failed to parse rpc-reply: %w", err)
+	}
+	// filter out warnings
+	rpcErrors := rpcReply.RPCErrors.Filter(SevError)
+	if len(rpcErrors) > 0 {
+		return rpcErrors
+	}
+
+	if reply != nil {
+		if err := xml.Unmarshal(raw, reply); err != nil {
+			return fmt.Errorf("failed to decode response: %w", err)
+		}
 	}
 
 	return nil
@@ -365,7 +403,11 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 
 	// This may fail so save the error but still close the underlying transport.
-	_, callErr := s.Do(ctx, &closeSession{})
+	req := NewRequest(&closeSession{})
+	resp, _ := s.Do(ctx, req)
+	if resp != nil {
+		_ = resp.Close()
+	}
 
 	// Close the connection and ignore errors if the remote side hung up first.
 	if err := s.tr.Close(); err != nil &&
@@ -375,10 +417,6 @@ func (s *Session) Close(ctx context.Context) error {
 		{
 			return err
 		}
-	}
-
-	if !errors.Is(callErr, io.EOF) {
-		return callErr
 	}
 
 	return nil

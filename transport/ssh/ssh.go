@@ -121,8 +121,8 @@ func newTransport(client *ssh.Client, managed bool) (*Transport, error) {
 	}, nil
 }
 
-// Close will close the underlying transport.  If the connection was created
-// with Dial then then underlying ssh.Client is closed as well.  If not only
+// Close will close the underlying transport. If the connection was created
+// with Dial then underlying ssh.Client is closed as well.  If not only
 // the sessions is closed.
 func (t *Transport) Close() error {
 	// will save previous errors but try to close everything returning just the

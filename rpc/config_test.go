@@ -294,7 +294,6 @@ func TestDeleteConfig_Exec(t *testing.T) {
 				Target: Datastore("my-custom-datastore"),
 			},
 			serverReply: `<ok/>`,
-			shouldError: false,
 		},
 	}
 

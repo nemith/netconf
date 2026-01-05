@@ -31,7 +31,7 @@ func mockSession(t *testing.T, rpcReplyInnerXML string) (*netconf.Session, *tran
 	// This will immediately consume the first message (Server Hello)
 	// and write the Client Hello to tr.outputs[0].
 	s, err := netconf.Open(tr)
-	require.NoError(t, err, "Session handshake failed")
+	require.NoError(t, err)
 
 	return s, tr
 }

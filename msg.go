@@ -25,6 +25,44 @@ type RPC struct {
 	Operation any `xml:",innerxml"` // The operation payload (e.g. <get-config>)
 }
 
+// RPCOption represents an option that can be passed to NewRPC to customize the
+// created RPC message.
+type RPCOption interface {
+	apply(*RPC)
+}
+
+type attributesOpt []xml.Attr
+
+func (o attributesOpt) apply(rpc *RPC) {
+	rpc.Attributes = append(rpc.Attributes, o...)
+}
+
+// WithAttributes adds the given XML attributes to be added to the <rpc>
+// element.  NETCONF servers are required to reflect these attributes in the
+// associated <rpc-reply>.
+func WithAttributes(attrs ...xml.Attr) RPCOption { return attributesOpt(attrs) }
+
+// NewRPC creates a new RPC message with the given operation as the body.
+func NewRPC(op any, opts ...RPCOption) *RPC {
+	rpc := &RPC{
+		Operation: op,
+	}
+	for _, opt := range opts {
+		opt.apply(rpc)
+	}
+	return rpc
+}
+
+// Clone does a shallow copy of the RPC.  Operation is not deeply copied.
+func (r *RPC) Clone() *RPC {
+	return &RPC{
+		MessageID:  r.MessageID,
+		Attributes: slices.Clone(r.Attributes),
+		Operation:  r.Operation,
+	}
+}
+
+// RPCReply maps the xml value of <rpc-reply> in RFC6241.
 type RPCReply struct {
 	XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
 
@@ -37,6 +75,7 @@ type RPCReply struct {
 	RPCErrors RPCErrors `xml:"rpc-error,omitempty"`
 }
 
+// Error types, severities, and tags as defined in RFC6241 sec 6.4.1
 type ErrSeverity string
 
 const (
@@ -44,6 +83,7 @@ const (
 	SevWarning ErrSeverity = "warning"
 )
 
+// ErrType represents the error-type of a NETCONF RPC error.
 type ErrType string
 
 const (
@@ -53,6 +93,7 @@ const (
 	ErrTypeApp       ErrType = "app"
 )
 
+// ErrTag represents the error-tag of a NETCONF RPC error.
 type ErrTag string
 
 const (
@@ -78,6 +119,7 @@ const (
 	ErrMalformedMessage      ErrTag = "malformed-message"
 )
 
+// RPCError maps the xml value of <rpc-error> in RFC6241 sec 6.4.1.
 type RPCError struct {
 	Type     ErrType     `xml:"error-type"`
 	Tag      ErrTag      `xml:"error-tag"`
@@ -92,20 +134,19 @@ func (e RPCError) Error() string {
 	return fmt.Sprintf("netconf error: %s %s: %s", e.Type, e.Tag, e.Message)
 }
 
+// RPCErrors represents a list of RPCError returned from a NETCONF rpc-reply.
 type RPCErrors []RPCError
 
-func (errs RPCErrors) Filter(severity ...ErrSeverity) RPCErrors {
+// Filter returns a new RPCErrors slice containing only errors with the given
+// severity.
+func (errs RPCErrors) Filter(severity ErrSeverity) RPCErrors {
 	if len(errs) == 0 {
 		return nil
 	}
 
-	if len(severity) == 0 {
-		severity = []ErrSeverity{SevError}
-	}
-
 	filteredErrs := make(RPCErrors, 0, len(errs))
 	for _, err := range errs {
-		if !slices.Contains(severity, err.Severity) {
+		if err.Severity != severity {
 			continue
 		}
 		filteredErrs = append(filteredErrs, err)
@@ -148,40 +189,70 @@ func (errs RPCErrors) Unwrap() error {
 	return errors.Join(unboxedErrs...)
 }
 
+// Notification maps the xml value of <notification> in RFC5277
 type Notification struct {
 	XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
 	EventTime time.Time `xml:"eventTime"`
 }
 
-// HelloMsg maps the xml value of the <hello> message in RFC6241
-type HelloMsg struct {
+// Hello maps the xml value of the <hello> message in RFC6241 sec 3.3.
+type Hello struct {
 	XMLName      xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 hello"`
 	SessionID    uint64   `xml:"session-id,omitempty"`
 	Capabilities []string `xml:"capabilities>capability"`
 }
 
-type Request struct {
-	RPC RPC
-}
-
-func NewRequest(op any) *Request {
-	return &Request{
-		RPC: RPC{
-			Operation: op,
-		},
-	}
-}
-
-type Response struct {
-	io.ReadCloser
-
-	MessageID  string     // Captured from the message-id attribute
+// Message represents a generic NETCONF stream message.  This could either be a
+// response to a rpc invokcation (with the envelope og <rpc-reply>) or a
+// notification message (with a envelope of <notification>).
+//
+// Messages MUST BE closed (with a call to Close(), or callind Decode() with
+// will close for you) when no longer needed to release the session to process
+// new messages.
+type Message struct {
+	// Additional XML attributes from the envelope (rpc-reply or notification)
 	Attributes []xml.Attr // Any other attributes on the envelope
+
+	reader    io.ReadCloser
+	messageID *string // cached message-id attribute
+}
+
+// MessageID returns the message-id attribute from the rpc-reply envelope.  If
+// the message doesn't have a message-id attribute (for example it is a
+// notification), an empty string is returned.
+func (d *Message) MessageID() string {
+	// check for a cached value first
+	if d.messageID != nil {
+		return *d.messageID
+	}
+
+	for _, attr := range d.Attributes {
+		if attr.Name.Local == "message-id" {
+			d.messageID = &attr.Value
+			return attr.Value
+		}
+	}
+
+	return ""
+}
+
+func (d *Message) Read(p []byte) (n int, err error) {
+	if d.reader == nil {
+		return 0, io.EOF
+	}
+	return d.reader.Read(p)
+}
+
+func (d *Message) Close() error {
+	if d.reader == nil {
+		return nil
+	}
+	return d.reader.Close()
 }
 
 // Decode will decode the response XML into the provided value v and then close
 // the message releasing the session to process new messages.
-func (d *Response) Decode(v any) (err error) {
+func (d *Message) Decode(v any) (err error) {
 	defer func() {
 		err = errors.Join(err, d.Close())
 	}()
@@ -191,13 +262,6 @@ func (d *Response) Decode(v any) (err error) {
 	}
 
 	return err
-}
-
-func (d *Response) Close() error {
-	if d.ReadCloser == nil {
-		return nil
-	}
-	return d.ReadCloser.Close()
 }
 
 // RawXML is a helper type for getting innerxml content as a byte slice.

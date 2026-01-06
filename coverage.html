@@ -67,7 +67,7 @@
 				
 				<option value="file5">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file6">nemith.io/netconf/session.go (13.3%)</option>
+				<option value="file6">nemith.io/netconf/session.go (13.2%)</option>
 				
 				<option value="file7">nemith.io/netconf/transport/frame.go (64.2%)</option>
 				
@@ -1145,7 +1145,7 @@ import (
         "errors"
         "fmt"
         "io"
-        "log"
+        "log/slog"
         "net"
         "slices"
         "strconv"
@@ -1165,6 +1165,7 @@ var ErrClosed = errors.New("closed connection")
 
 type sessionConfig struct {
         clientCaps []string
+        logger     *slog.Logger
 }
 
 type SessionOption interface {
@@ -1181,6 +1182,21 @@ func WithCapability(capabilities ...string) SessionOption <span class="cov0" tit
         return capabilityOpt(capabilities)
 }</span>
 
+type loggerOpt struct {
+        logger *slog.Logger
+}
+
+func (o loggerOpt) apply(cfg *sessionConfig) <span class="cov0" title="0">{
+        cfg.logger = o.logger
+}</span>
+
+// WithLogger sets a custom slog.Logger for the session.
+// If not provided, slog.Default() will be used.
+// To disable logging, pass slog.New(slog.NewTextHandler(io.Discard, nil)).
+func WithLogger(logger *slog.Logger) SessionOption <span class="cov0" title="0">{
+        return loggerOpt{logger: logger}
+}</span>
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
         tr        transport.Transport
@@ -1193,11 +1209,14 @@ type Session struct {
         mu      sync.Mutex
         reqs    map[string]*pendingReq
         closing bool
+
+        logger *slog.Logger
 }
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov0" title="0">{
         cfg := sessionConfig{
                 clientCaps: DefaultCapabilities,
+                logger:     slog.Default(),
         }
 
         for _, opt := range opts </span><span class="cov0" title="0">{
@@ -1208,6 +1227,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
                 tr:         transport,
                 clientCaps: NewCapabilitySet(cfg.clientCaps...),
                 reqs:       make(map[string]*pendingReq),
+                logger:     cfg.logger,
         }
         return s</span>
 }
@@ -1347,7 +1367,8 @@ func (s *Session) recvLoop() <span class="cov0" title="0">{
         buf := make([]byte, 4096)
         for </span><span class="cov0" title="0">{
                 if err := s.recvMsg(buf); err != nil </span><span class="cov0" title="0">{
-                        log.Printf("netconf: failed to receive message: %v", err)
+                        // TODO: check for regular EOF and exit silently
+                        s.logger.Error("failed to receive message", "error", err)
                         break</span>
                 }
         }
@@ -1358,11 +1379,12 @@ func (s *Session) recvLoop() <span class="cov0" title="0">{
                 close(req.msg)
         }</span>
         <span class="cov0" title="0">s.mu.Unlock()
+
         // TODO: expose this error
         _ = s.tr.Close()
 
         if !s.closing </span><span class="cov0" title="0">{
-                log.Printf("netconf: connection closed unexpectedly")
+                s.logger.Warn("connection closed unexpectedly")
         }</span>
 }
 
@@ -1405,7 +1427,7 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov0" title="0">{
         case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:<span class="cov0" title="0">
                 msgID := getMessageID(startElem.Attr)
                 if msgID == "" </span><span class="cov0" title="0">{
-                        log.Printf("netconf: rpc-reply missing message-id")
+                        s.logger.Warn("rpc-reply missing message-id")
                         return nil // Continue loop
                 }</span>
 
@@ -1415,7 +1437,7 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov0" title="0">{
                 s.mu.Unlock()
 
                 if !ok </span><span class="cov0" title="0">{
-                        log.Printf("netconf: unexpected rpc-reply with message-id %s (possible timeout?)", msgID)
+                        s.logger.Warn("unexpected rpc-reply", "message-id", msgID, "note", "possible timeout")
                         return nil // Continue loop
                 }</span>
 

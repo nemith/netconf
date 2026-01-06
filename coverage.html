@@ -57,7 +57,7 @@
 				
 				<option value="file0">nemith.io/netconf/capability.go (72.2%)</option>
 				
-				<option value="file1">nemith.io/netconf/msg.go (13.0%)</option>
+				<option value="file1">nemith.io/netconf/msg.go (10.0%)</option>
 				
 				<option value="file2">nemith.io/netconf/rpc/config.go (80.0%)</option>
 				
@@ -67,7 +67,7 @@
 				
 				<option value="file5">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file6">nemith.io/netconf/session.go (13.9%)</option>
+				<option value="file6">nemith.io/netconf/session.go (13.3%)</option>
 				
 				<option value="file7">nemith.io/netconf/transport/frame.go (64.2%)</option>
 				
@@ -216,6 +216,44 @@ type RPC struct {
         Operation any `xml:",innerxml"` // The operation payload (e.g. &lt;get-config&gt;)
 }
 
+// RPCOption represents an option that can be passed to NewRPC to customize the
+// created RPC message.
+type RPCOption interface {
+        apply(*RPC)
+}
+
+type attributesOpt []xml.Attr
+
+func (o attributesOpt) apply(rpc *RPC) <span class="cov0" title="0">{
+        rpc.Attributes = append(rpc.Attributes, o...)
+}</span>
+
+// WithAttributes adds the given XML attributes to be added to the &lt;rpc&gt;
+// element.  NETCONF servers are required to reflect these attributes in the
+// associated &lt;rpc-reply&gt;.
+func WithAttributes(attrs ...xml.Attr) RPCOption <span class="cov0" title="0">{ return attributesOpt(attrs) }</span>
+
+// NewRPC creates a new RPC message with the given operation as the body.
+func NewRPC(op any, opts ...RPCOption) *RPC <span class="cov0" title="0">{
+        rpc := &amp;RPC{
+                Operation: op,
+        }
+        for _, opt := range opts </span><span class="cov0" title="0">{
+                opt.apply(rpc)
+        }</span>
+        <span class="cov0" title="0">return rpc</span>
+}
+
+// Clone does a shallow copy of the RPC.  Operation is not deeply copied.
+func (r *RPC) Clone() *RPC <span class="cov0" title="0">{
+        return &amp;RPC{
+                MessageID:  r.MessageID,
+                Attributes: slices.Clone(r.Attributes),
+                Operation:  r.Operation,
+        }
+}</span>
+
+// RPCReply maps the xml value of &lt;rpc-reply&gt; in RFC6241.
 type RPCReply struct {
         XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 rpc-reply"`
 
@@ -228,6 +266,7 @@ type RPCReply struct {
         RPCErrors RPCErrors `xml:"rpc-error,omitempty"`
 }
 
+// Error types, severities, and tags as defined in RFC6241 sec 6.4.1
 type ErrSeverity string
 
 const (
@@ -235,6 +274,7 @@ const (
         SevWarning ErrSeverity = "warning"
 )
 
+// ErrType represents the error-type of a NETCONF RPC error.
 type ErrType string
 
 const (
@@ -244,6 +284,7 @@ const (
         ErrTypeApp       ErrType = "app"
 )
 
+// ErrTag represents the error-tag of a NETCONF RPC error.
 type ErrTag string
 
 const (
@@ -269,6 +310,7 @@ const (
         ErrMalformedMessage      ErrTag = "malformed-message"
 )
 
+// RPCError maps the xml value of &lt;rpc-error&gt; in RFC6241 sec 6.4.1.
 type RPCError struct {
         Type     ErrType     `xml:"error-type"`
         Tag      ErrTag      `xml:"error-tag"`
@@ -283,20 +325,19 @@ func (e RPCError) Error() string <span class="cov0" title="0">{
         return fmt.Sprintf("netconf error: %s %s: %s", e.Type, e.Tag, e.Message)
 }</span>
 
+// RPCErrors represents a list of RPCError returned from a NETCONF rpc-reply.
 type RPCErrors []RPCError
 
-func (errs RPCErrors) Filter(severity ...ErrSeverity) RPCErrors <span class="cov0" title="0">{
+// Filter returns a new RPCErrors slice containing only errors with the given
+// severity.
+func (errs RPCErrors) Filter(severity ErrSeverity) RPCErrors <span class="cov0" title="0">{
         if len(errs) == 0 </span><span class="cov0" title="0">{
                 return nil
         }</span>
 
-        <span class="cov0" title="0">if len(severity) == 0 </span><span class="cov0" title="0">{
-                severity = []ErrSeverity{SevError}
-        }</span>
-
         <span class="cov0" title="0">filteredErrs := make(RPCErrors, 0, len(errs))
         for _, err := range errs </span><span class="cov0" title="0">{
-                if !slices.Contains(severity, err.Severity) </span><span class="cov0" title="0">{
+                if err.Severity != severity </span><span class="cov0" title="0">{
                         continue</span>
                 }
                 <span class="cov0" title="0">filteredErrs = append(filteredErrs, err)</span>
@@ -339,40 +380,70 @@ func (errs RPCErrors) Unwrap() error <span class="cov0" title="0">{
         <span class="cov0" title="0">return errors.Join(unboxedErrs...)</span>
 }
 
+// Notification maps the xml value of &lt;notification&gt; in RFC5277
 type Notification struct {
         XMLName   xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:notification:1.0 notification"`
         EventTime time.Time `xml:"eventTime"`
 }
 
-// HelloMsg maps the xml value of the &lt;hello&gt; message in RFC6241
-type HelloMsg struct {
+// Hello maps the xml value of the &lt;hello&gt; message in RFC6241 sec 3.3.
+type Hello struct {
         XMLName      xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 hello"`
         SessionID    uint64   `xml:"session-id,omitempty"`
         Capabilities []string `xml:"capabilities&gt;capability"`
 }
 
-type Request struct {
-        RPC RPC
+// Message represents a generic NETCONF stream message.  This could either be a
+// response to a rpc invokcation (with the envelope og &lt;rpc-reply&gt;) or a
+// notification message (with a envelope of &lt;notification&gt;).
+//
+// Messages MUST BE closed (with a call to Close(), or callind Decode() with
+// will close for you) when no longer needed to release the session to process
+// new messages.
+type Message struct {
+        // Additional XML attributes from the envelope (rpc-reply or notification)
+        Attributes []xml.Attr // Any other attributes on the envelope
+
+        reader    io.ReadCloser
+        messageID *string // cached message-id attribute
 }
 
-func NewRequest(op any) *Request <span class="cov0" title="0">{
-        return &amp;Request{
-                RPC: RPC{
-                        Operation: op,
-                },
+// MessageID returns the message-id attribute from the rpc-reply envelope.  If
+// the message doesn't have a message-id attribute (for example it is a
+// notification), an empty string is returned.
+func (d *Message) MessageID() string <span class="cov0" title="0">{
+        // check for a cached value first
+        if d.messageID != nil </span><span class="cov0" title="0">{
+                return *d.messageID
+        }</span>
+
+        <span class="cov0" title="0">for _, attr := range d.Attributes </span><span class="cov0" title="0">{
+                if attr.Name.Local == "message-id" </span><span class="cov0" title="0">{
+                        d.messageID = &amp;attr.Value
+                        return attr.Value
+                }</span>
         }
-}</span>
 
-type Response struct {
-        io.ReadCloser
+        <span class="cov0" title="0">return ""</span>
+}
 
-        MessageID  string     // Captured from the message-id attribute
-        Attributes []xml.Attr // Any other attributes on the envelope
+func (d *Message) Read(p []byte) (n int, err error) <span class="cov0" title="0">{
+        if d.reader == nil </span><span class="cov0" title="0">{
+                return 0, io.EOF
+        }</span>
+        <span class="cov0" title="0">return d.reader.Read(p)</span>
+}
+
+func (d *Message) Close() error <span class="cov0" title="0">{
+        if d.reader == nil </span><span class="cov0" title="0">{
+                return nil
+        }</span>
+        <span class="cov0" title="0">return d.reader.Close()</span>
 }
 
 // Decode will decode the response XML into the provided value v and then close
 // the message releasing the session to process new messages.
-func (d *Response) Decode(v any) (err error) <span class="cov0" title="0">{
+func (d *Message) Decode(v any) (err error) <span class="cov0" title="0">{
         defer func() </span><span class="cov0" title="0">{
                 err = errors.Join(err, d.Close())
         }</span>()
@@ -382,13 +453,6 @@ func (d *Response) Decode(v any) (err error) <span class="cov0" title="0">{
         }</span>
 
         <span class="cov0" title="0">return err</span>
-}
-
-func (d *Response) Close() error <span class="cov0" title="0">{
-        if d.ReadCloser == nil </span><span class="cov0" title="0">{
-                return nil
-        }</span>
-        <span class="cov0" title="0">return d.ReadCloser.Close()</span>
 }
 
 // RawXML is a helper type for getting innerxml content as a byte slice.
@@ -1165,7 +1229,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 
 // handshake exchanges handshake messages and reports if there are any errors.
 func (s *Session) handshake() error <span class="cov10" title="4">{
-        clientMsg := HelloMsg{
+        clientMsg := Hello{
                 Capabilities: slices.Collect(s.clientCaps.All()),
         }
 
@@ -1194,7 +1258,7 @@ func (s *Session) handshake() error <span class="cov10" title="4">{
                 _ = r.Close()
         }</span>()
 
-        <span class="cov10" title="4">var serverMsg HelloMsg
+        <span class="cov10" title="4">var serverMsg Hello
         if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov1" title="1">{
                 return fmt.Errorf("failed to read server hello message: %w", err)
         }</span>
@@ -1254,8 +1318,8 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov0" 
 }
 
 type pendingReq struct {
-        reply chan *Response
-        ctx   context.Context
+        msg chan *Message
+        ctx context.Context
 }
 
 type replyReader struct {
@@ -1291,7 +1355,7 @@ func (s *Session) recvLoop() <span class="cov0" title="0">{
         // Final cleanup when the loop exits
         <span class="cov0" title="0">s.mu.Lock()
         for _, req := range s.reqs </span><span class="cov0" title="0">{
-                close(req.reply)
+                close(req.msg)
         }</span>
         <span class="cov0" title="0">s.mu.Unlock()
         // TODO: expose this error
@@ -1324,7 +1388,6 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov0" title="0">{
         // 3. Peek/Read the start of the message
         <span class="cov0" title="0">n, err := r.Read(buf)
         if err != nil &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov0" title="0">{
-                // It is okay to return EOF here; recv() handles the check.
                 return err
         }</span>
 
@@ -1364,9 +1427,9 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov0" title="0">{
                 }
 
                 select </span>{
-                case req.reply &lt;- &amp;Response{
-                        ReadCloser: reader,
-                        MessageID:  msgID,
+                case req.msg &lt;- &amp;Message{
+                        reader:     reader,
+                        messageID:  &amp;msgID,
                         Attributes: startElem.Attr,
                 }:<span class="cov0" title="0">
                         // We wait for the user to call Close() on the replyReader.
@@ -1382,25 +1445,45 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov0" title="0">{
         }
 }
 
-// Do issues a rpc message for the given Request.  This is a low-level method
-// that doesn't try to decode the response including any rpc-errors.
-func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) <span class="cov0" title="0">{
-        msgID := strconv.FormatUint(s.seq.Add(1), 10)
-        req.RPC.MessageID = msgID
+func (s *Session) nextMessageID() string <span class="cov0" title="0">{
+        return strconv.FormatUint(s.seq.Add(1), 10)
+}</span>
 
-        // Setup channel
-        ch := make(chan *Response, 1)
+// Prepare will prepare the given rpc by assigning it a message-id if it
+// doesn't have one already.
+func (s *Session) Prepare(rpc *RPC) *RPC <span class="cov0" title="0">{
+        if rpc.MessageID == "" </span><span class="cov0" title="0">{
+                rpc = rpc.Clone()
+                rpc.MessageID = s.nextMessageID()
+        }</span>
+
+        <span class="cov0" title="0">return rpc</span>
+}
+
+// Do will send the given rpc message and wait for the response message.
+func (s *Session) Do(ctx context.Context, rpc *RPC) (*Message, error) <span class="cov0" title="0">{
+        rpc = s.Prepare(rpc)
+
+        // Setup request/reply channel
+        ch := make(chan *Message, 1)
+
         s.mu.Lock()
-        s.reqs[msgID] = &amp;pendingReq{
-                reply: ch,
-                ctx:   ctx,
+        _, ok := s.reqs[rpc.MessageID]
+        if ok </span><span class="cov0" title="0">{
+                s.mu.Unlock()
+                return nil, fmt.Errorf("rpc with message-id %q is already pending", rpc.MessageID)
+        }</span>
+
+        <span class="cov0" title="0">s.reqs[rpc.MessageID] = &amp;pendingReq{
+                msg: ch,
+                ctx: ctx,
         }
         s.mu.Unlock()
 
         // Cleanup if context triggers before send/recv
         defer func() </span><span class="cov0" title="0">{
                 s.mu.Lock()
-                delete(s.reqs, msgID)
+                delete(s.reqs, rpc.MessageID)
                 s.mu.Unlock()
         }</span>()
 
@@ -1408,7 +1491,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) <span
         if err != nil </span><span class="cov0" title="0">{
                 return nil, fmt.Errorf("failed to get message writer: %w", err)
         }</span>
-        <span class="cov0" title="0">if err := xml.NewEncoder(w).Encode(req.RPC); err != nil </span><span class="cov0" title="0">{
+        <span class="cov0" title="0">if err := xml.NewEncoder(w).Encode(rpc); err != nil </span><span class="cov0" title="0">{
                 _ = w.Close() // try to close anyway
                 return nil, fmt.Errorf("failed to encode request: %w", err)
         }</span>
@@ -1428,20 +1511,19 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) <span
         }
 }
 
-// Exec issues a rpc message with `req` as the body and decodes the response into
-// a pointer at `resp`.  Resp must include the full &lt;rpc-reply&gt; structure.
-func (s *Session) Exec(ctx context.Context, operation any, reply any) error <span class="cov0" title="0">{
-        req := Request{RPC: RPC{Operation: operation}}
-
-        resp, err := s.Do(ctx, &amp;req)
+// Exec issues a rpc message with `op` as the body and decodes the response into
+// a pointer at `reply`. The Reply must include the full &lt;rpc-reply&gt; structure.
+func (s *Session) Exec(ctx context.Context, op any, reply any) error <span class="cov0" title="0">{
+        rpc := NewRPC(op)
+        msg, err := s.Do(ctx, rpc)
         if err != nil </span><span class="cov0" title="0">{
                 return err
         }</span>
         <span class="cov0" title="0">defer func() </span><span class="cov0" title="0">{
-                _ = resp.Close()
+                _ = msg.Close()
         }</span>()
 
-        <span class="cov0" title="0">raw, err := io.ReadAll(resp)
+        <span class="cov0" title="0">raw, err := io.ReadAll(msg)
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to read reply: %w", err)
         }</span>
@@ -1477,7 +1559,7 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
         }
 
         // This may fail so save the error but still close the underlying transport.
-        req := NewRequest(&amp;closeSession{})
+        req := NewRPC(&amp;closeSession{})
         resp, _ := s.Do(ctx, req)
         if resp != nil </span><span class="cov0" title="0">{
                 _ = resp.Close()
@@ -1488,10 +1570,8 @@ func (s *Session) Close(ctx context.Context) error <span class="cov0" title="0">
                 !errors.Is(err, net.ErrClosed) &amp;&amp;
                 !errors.Is(err, io.EOF) &amp;&amp;
                 !errors.Is(err, syscall.EPIPE) </span><span class="cov0" title="0">{
-                </span><span class="cov0" title="0">{
-                        return err
-                }</span>
-        }
+                return err
+        }</span>
 
         <span class="cov0" title="0">return nil</span>
 }

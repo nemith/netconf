@@ -56,6 +56,9 @@ func (o loggerOpt) apply(cfg *sessionConfig) {
 // If not provided, slog.Default() will be used.
 // To disable logging, pass slog.New(slog.NewTextHandler(io.Discard, nil)).
 func WithLogger(logger *slog.Logger) SessionOption {
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
 	return loggerOpt{logger: logger}
 }
 

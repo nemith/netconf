@@ -25,9 +25,19 @@ const (
 
 var ErrClosed = errors.New("closed connection")
 
+// NotificationHandler is called when a notification message is received from
+// the server. The handler is called asynchronously in its own goroutine.
+// The Message contains the raw notification data and must be closed when done.
+// The context is cancelled when the session closes or encounters an error.
+//
+// If the handler returns an error, it will be logged but will not terminate
+// the session or stop future notifications from being delivered.
+type NotificationHandler func(ctx context.Context, msg *Message) error
+
 type sessionConfig struct {
-	clientCaps []string
-	logger     *slog.Logger
+	clientCaps   []string
+	logger       *slog.Logger
+	notifHandler NotificationHandler
 }
 
 type SessionOption interface {
@@ -62,6 +72,22 @@ func WithLogger(logger *slog.Logger) SessionOption {
 	return loggerOpt{logger: logger}
 }
 
+type notifHandlerOpt struct {
+	handler NotificationHandler
+}
+
+func (o notifHandlerOpt) apply(cfg *sessionConfig) {
+	cfg.notifHandler = o.handler
+}
+
+// WithNotificationHandler sets a handler for notifications received from the
+// server. The handler will be called asynchronously for each notification.
+// See NotificationHandler documentation for details on error handling and
+// context cancellation.
+func WithNotificationHandler(handler NotificationHandler) SessionOption {
+	return notifHandlerOpt{handler: handler}
+}
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
 	tr        transport.Transport
@@ -74,6 +100,10 @@ type Session struct {
 	mu      sync.Mutex
 	reqs    map[string]*pendingReq
 	closing bool
+
+	notifHandler NotificationHandler
+	notifCtx     context.Context
+	notifCancel  context.CancelFunc
 
 	logger *slog.Logger
 }
@@ -88,11 +118,16 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 		opt.apply(&cfg)
 	}
 
+	notifCtx, notifCancel := context.WithCancel(context.Background())
+
 	s := &Session{
-		tr:         transport,
-		clientCaps: NewCapabilitySet(cfg.clientCaps...),
-		reqs:       make(map[string]*pendingReq),
-		logger:     cfg.logger,
+		tr:           transport,
+		clientCaps:   NewCapabilitySet(cfg.clientCaps...),
+		reqs:         make(map[string]*pendingReq),
+		notifHandler: cfg.notifHandler,
+		notifCtx:     notifCtx,
+		notifCancel:  notifCancel,
+		logger:       cfg.logger,
 	}
 	return s
 }
@@ -328,8 +363,47 @@ func (s *Session) recvMsg(buf []byte) error {
 			return nil
 		}
 
+	case xml.Name{Space: NotificationNamespace, Local: "notification"}:
+		if s.notifHandler == nil {
+			s.logger.Warn("received notification but no handler configured")
+			return nil
+		}
+
+		// Create a reader for the notification that will close the transport reader
+		readDone := make(chan struct{})
+		reader := &replyReader{
+			Reader: msgReader,
+			closer: r,
+			done:   readDone,
+		}
+
+		// Call handler asynchronously to avoid blocking the receive loop
+		go s.handleNotification(reader, startElem.Attr)
+
+		// Wait for handler to finish reading/closing the message
+		<-readDone
+		return nil
+
 	default:
 		return fmt.Errorf("netconf: unknown message type: %s", startElem.Name.Local)
+	}
+}
+
+// handleNotification invokes the notification handler asynchronously.
+// It ensures the message is properly closed and logs any errors from the handler.
+func (s *Session) handleNotification(reader *replyReader, attrs []xml.Attr) {
+	msg := &Message{
+		reader:     reader,
+		Attributes: attrs,
+	}
+
+	if err := s.notifHandler(s.notifCtx, msg); err != nil {
+		s.logger.Error("notification handler error", "error", err)
+	}
+
+	// Ensure the message is closed even if handler didn't close it
+	if err := msg.Close(); err != nil && !errors.Is(err, io.EOF) {
+		s.logger.Warn("failed to close notification message", "error", err)
 	}
 }
 
@@ -441,6 +515,9 @@ func (s *Session) Close(ctx context.Context) error {
 	s.mu.Lock()
 	s.closing = true
 	s.mu.Unlock()
+
+	// Cancel notification context to signal handlers to stop
+	s.notifCancel()
 
 	type closeSession struct {
 		XMLName xml.Name `xml:"close-session"`

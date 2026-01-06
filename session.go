@@ -32,12 +32,20 @@ var ErrClosed = errors.New("closed connection")
 //
 // If the handler returns an error, it will be logged but will not terminate
 // the session or stop future notifications from being delivered.
-type NotificationHandler func(ctx context.Context, msg *Message) error
+type NotifHandlerFunc func(ctx context.Context, msg *Message)
+
+func (h NotifHandlerFunc) HandleNotification(ctx context.Context, msg *Message) {
+	h(ctx, msg)
+}
+
+type NotifHandler interface {
+	HandleNotification(ctx context.Context, msg *Message)
+}
 
 type sessionConfig struct {
 	clientCaps   []string
 	logger       *slog.Logger
-	notifHandler NotificationHandler
+	notifHandler NotifHandler
 }
 
 type SessionOption interface {
@@ -73,19 +81,25 @@ func WithLogger(logger *slog.Logger) SessionOption {
 }
 
 type notifHandlerOpt struct {
-	handler NotificationHandler
+	handler NotifHandler
 }
 
 func (o notifHandlerOpt) apply(cfg *sessionConfig) {
 	cfg.notifHandler = o.handler
 }
 
-// WithNotificationHandler sets a handler for notifications received from the
+// WithNotifiHandler sets a handler for notifications received from the
 // server. The handler will be called asynchronously for each notification.
-// See NotificationHandler documentation for details on error handling and
+// See NotifiHandler documentation for details on error handling and
 // context cancellation.
-func WithNotificationHandler(handler NotificationHandler) SessionOption {
+func WithNotifHandler(handler NotifHandler) SessionOption {
 	return notifHandlerOpt{handler: handler}
+}
+
+// WithNotifHandlerFunc allows passing in a function for notification handler instead
+// of a implementation of NotifHandler.
+func WithNotifHandlerFunc(handlerFunc func(context.Context, *Message)) SessionOption {
+	return notifHandlerOpt{handler: NotifHandlerFunc(handlerFunc)}
 }
 
 // Session is represents a netconf session to a one given device.
@@ -101,7 +115,7 @@ type Session struct {
 	reqs    map[string]*pendingReq
 	closing bool
 
-	notifHandler NotificationHandler
+	notifHandler NotifHandler
 	notifCtx     context.Context
 	notifCancel  context.CancelFunc
 
@@ -397,9 +411,7 @@ func (s *Session) handleNotification(reader *replyReader, attrs []xml.Attr) {
 		Attributes: attrs,
 	}
 
-	if err := s.notifHandler(s.notifCtx, msg); err != nil {
-		s.logger.Error("notification handler error", "error", err)
-	}
+	s.notifHandler.HandleNotification(s.notifCtx, msg)
 
 	// Ensure the message is closed even if handler didn't close it
 	if err := msg.Close(); err != nil && !errors.Is(err, io.EOF) {

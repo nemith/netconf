@@ -240,12 +240,13 @@ func (s *Session) recvLoop() {
 	for _, req := range s.reqs {
 		close(req.msg)
 	}
+	closing := s.closing
 	s.mu.Unlock()
 
 	// TODO: expose this error
 	_ = s.tr.Close()
 
-	if !s.closing {
+	if !closing {
 		s.logger.Warn("connection closed unexpectedly")
 	}
 }

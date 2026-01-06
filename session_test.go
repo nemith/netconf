@@ -75,23 +75,23 @@ func TestHello(t *testing.T) {
 func TestNotificationHandler(t *testing.T) {
 	received := make(chan string, 10)
 
-	handler := func(ctx context.Context, msg *Message) error {
+	handler := func(ctx context.Context, msg *Message) {
 		defer func() { _ = msg.Close() }()
 
 		var notif Notification
 		if err := msg.Decode(&notif); err != nil {
-			return err
+			t.Logf("notification handler decode failure: %v", err)
+			return
 		}
 
 		received <- notif.EventTime.Format(time.RFC3339)
-		return nil
 	}
 
 	tt := &transport.TestTransport{}
 	tt.AddResponse(helloGood)
 
 	// Open session
-	session, err := Open(tt, WithNotificationHandler(handler))
+	session, err := Open(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	require.NotNil(t, session.notifHandler)
 
@@ -114,15 +114,14 @@ func TestNotificationHandler(t *testing.T) {
 }
 
 func TestNotificationHandlerContextCanceled(t *testing.T) {
-	handler := func(ctx context.Context, msg *Message) error {
+	handler := func(ctx context.Context, msg *Message) {
 		defer func() { _ = msg.Close() }()
-		return nil
 	}
 
 	tt := &transport.TestTransport{}
 	tt.AddResponse(helloGood)
 
-	session, err := Open(tt, WithNotificationHandler(handler))
+	session, err := Open(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 
 	// Verify context is not cancelled initially

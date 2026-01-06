@@ -67,7 +67,7 @@
 				
 				<option value="file5">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file6">nemith.io/netconf/session.go (13.2%)</option>
+				<option value="file6">nemith.io/netconf/session.go (12.9%)</option>
 				
 				<option value="file7">nemith.io/netconf/transport/frame.go (64.2%)</option>
 				
@@ -1194,8 +1194,11 @@ func (o loggerOpt) apply(cfg *sessionConfig) <span class="cov0" title="0">{
 // If not provided, slog.Default() will be used.
 // To disable logging, pass slog.New(slog.NewTextHandler(io.Discard, nil)).
 func WithLogger(logger *slog.Logger) SessionOption <span class="cov0" title="0">{
-        return loggerOpt{logger: logger}
-}</span>
+        if logger == nil </span><span class="cov0" title="0">{
+                logger = slog.New(slog.DiscardHandler)
+        }</span>
+        <span class="cov0" title="0">return loggerOpt{logger: logger}</span>
+}
 
 // Session is represents a netconf session to a one given device.
 type Session struct {
@@ -1378,12 +1381,13 @@ func (s *Session) recvLoop() <span class="cov0" title="0">{
         for _, req := range s.reqs </span><span class="cov0" title="0">{
                 close(req.msg)
         }</span>
-        <span class="cov0" title="0">s.mu.Unlock()
+        <span class="cov0" title="0">closing := s.closing
+        s.mu.Unlock()
 
         // TODO: expose this error
         _ = s.tr.Close()
 
-        if !s.closing </span><span class="cov0" title="0">{
+        if !closing </span><span class="cov0" title="0">{
                 s.logger.Warn("connection closed unexpectedly")
         }</span>
 }

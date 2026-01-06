@@ -27,6 +27,7 @@ func (s *testServer) handle(r io.ReadCloser, w io.WriteCloser) {
 	if err != nil {
 		panic(fmt.Sprintf("testerver: failed to read incomming message: %v", err))
 	}
+
 	s.t.Logf("testserver recv: %s", in)
 	go func() { s.in <- in }()
 

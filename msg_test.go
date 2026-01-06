@@ -65,12 +65,12 @@ func TestRawXMLMarshal(t *testing.T) {
 var helloMsgTestTable = []struct {
 	name string
 	raw  []byte
-	msg  HelloMsg
+	msg  Hello
 }{
 	{
 		name: "basic",
 		raw:  []byte(`<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"><capabilities><capability>urn:ietf:params:netconf:base:1.0</capability><capability>urn:ietf:params:netconf:base:1.1</capability></capabilities></hello>`),
-		msg: HelloMsg{
+		msg: Hello{
 			XMLName: xml.Name{
 				Local: "hello",
 				Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
@@ -100,7 +100,7 @@ var helloMsgTestTable = []struct {
   </capabilities>
   <session-id>410</session-id>
 </hello>`),
-		msg: HelloMsg{
+		msg: Hello{
 			XMLName: xml.Name{
 				Local: "hello",
 				Space: "urn:ietf:params:xml:ns:netconf:base:1.0",
@@ -127,7 +127,7 @@ var helloMsgTestTable = []struct {
 func TestUnmarshalHelloMsg(t *testing.T) {
 	for _, tc := range helloMsgTestTable {
 		t.Run(tc.name, func(t *testing.T) {
-			var got HelloMsg
+			var got Hello
 			err := xml.Unmarshal(tc.raw, &got)
 			assert.NoError(t, err)
 			assert.Equal(t, got, tc.msg)

@@ -91,7 +91,7 @@ func Open(transport transport.Transport, opts ...SessionOption) (*Session, error
 
 // handshake exchanges handshake messages and reports if there are any errors.
 func (s *Session) handshake() error {
-	clientMsg := HelloMsg{
+	clientMsg := Hello{
 		Capabilities: slices.Collect(s.clientCaps.All()),
 	}
 
@@ -120,7 +120,7 @@ func (s *Session) handshake() error {
 		_ = r.Close()
 	}()
 
-	var serverMsg HelloMsg
+	var serverMsg Hello
 	if err := xml.NewDecoder(r).Decode(&serverMsg); err != nil {
 		return fmt.Errorf("failed to read server hello message: %w", err)
 	}
@@ -180,8 +180,8 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) {
 }
 
 type pendingReq struct {
-	reply chan *Response
-	ctx   context.Context
+	msg chan *Message
+	ctx context.Context
 }
 
 type replyReader struct {
@@ -217,7 +217,7 @@ func (s *Session) recvLoop() {
 	// Final cleanup when the loop exits
 	s.mu.Lock()
 	for _, req := range s.reqs {
-		close(req.reply)
+		close(req.msg)
 	}
 	s.mu.Unlock()
 	// TODO: expose this error
@@ -250,7 +250,6 @@ func (s *Session) recvMsg(buf []byte) error {
 	// 3. Peek/Read the start of the message
 	n, err := r.Read(buf)
 	if err != nil && !errors.Is(err, io.EOF) {
-		// It is okay to return EOF here; recv() handles the check.
 		return err
 	}
 
@@ -290,9 +289,9 @@ func (s *Session) recvMsg(buf []byte) error {
 		}
 
 		select {
-		case req.reply <- &Response{
-			ReadCloser: reader,
-			MessageID:  msgID,
+		case req.msg <- &Message{
+			reader:     reader,
+			messageID:  &msgID,
 			Attributes: startElem.Attr,
 		}:
 			// We wait for the user to call Close() on the replyReader.
@@ -308,25 +307,45 @@ func (s *Session) recvMsg(buf []byte) error {
 	}
 }
 
-// Do issues a rpc message for the given Request.  This is a low-level method
-// that doesn't try to decode the response including any rpc-errors.
-func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
-	msgID := strconv.FormatUint(s.seq.Add(1), 10)
-	req.RPC.MessageID = msgID
+func (s *Session) nextMessageID() string {
+	return strconv.FormatUint(s.seq.Add(1), 10)
+}
 
-	// Setup channel
-	ch := make(chan *Response, 1)
+// Prepare will prepare the given rpc by assigning it a message-id if it
+// doesn't have one already.
+func (s *Session) Prepare(rpc *RPC) *RPC {
+	if rpc.MessageID == "" {
+		rpc = rpc.Clone()
+		rpc.MessageID = s.nextMessageID()
+	}
+
+	return rpc
+}
+
+// Do will send the given rpc message and wait for the response message.
+func (s *Session) Do(ctx context.Context, rpc *RPC) (*Message, error) {
+	rpc = s.Prepare(rpc)
+
+	// Setup request/reply channel
+	ch := make(chan *Message, 1)
+
 	s.mu.Lock()
-	s.reqs[msgID] = &pendingReq{
-		reply: ch,
-		ctx:   ctx,
+	_, ok := s.reqs[rpc.MessageID]
+	if ok {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("rpc with message-id %q is already pending", rpc.MessageID)
+	}
+
+	s.reqs[rpc.MessageID] = &pendingReq{
+		msg: ch,
+		ctx: ctx,
 	}
 	s.mu.Unlock()
 
 	// Cleanup if context triggers before send/recv
 	defer func() {
 		s.mu.Lock()
-		delete(s.reqs, msgID)
+		delete(s.reqs, rpc.MessageID)
 		s.mu.Unlock()
 	}()
 
@@ -334,7 +353,7 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to get message writer: %w", err)
 	}
-	if err := xml.NewEncoder(w).Encode(req.RPC); err != nil {
+	if err := xml.NewEncoder(w).Encode(rpc); err != nil {
 		_ = w.Close() // try to close anyway
 		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -354,20 +373,19 @@ func (s *Session) Do(ctx context.Context, req *Request) (*Response, error) {
 	}
 }
 
-// Exec issues a rpc message with `req` as the body and decodes the response into
-// a pointer at `resp`.  Resp must include the full <rpc-reply> structure.
-func (s *Session) Exec(ctx context.Context, operation any, reply any) error {
-	req := Request{RPC: RPC{Operation: operation}}
-
-	resp, err := s.Do(ctx, &req)
+// Exec issues a rpc message with `op` as the body and decodes the response into
+// a pointer at `reply`. The Reply must include the full <rpc-reply> structure.
+func (s *Session) Exec(ctx context.Context, op any, reply any) error {
+	rpc := NewRPC(op)
+	msg, err := s.Do(ctx, rpc)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		_ = resp.Close()
+		_ = msg.Close()
 	}()
 
-	raw, err := io.ReadAll(resp)
+	raw, err := io.ReadAll(msg)
 	if err != nil {
 		return fmt.Errorf("failed to read reply: %w", err)
 	}
@@ -403,7 +421,7 @@ func (s *Session) Close(ctx context.Context) error {
 	}
 
 	// This may fail so save the error but still close the underlying transport.
-	req := NewRequest(&closeSession{})
+	req := NewRPC(&closeSession{})
 	resp, _ := s.Do(ctx, req)
 	if resp != nil {
 		_ = resp.Close()
@@ -414,9 +432,7 @@ func (s *Session) Close(ctx context.Context) error {
 		!errors.Is(err, net.ErrClosed) &&
 		!errors.Is(err, io.EOF) &&
 		!errors.Is(err, syscall.EPIPE) {
-		{
-			return err
-		}
+		return err
 	}
 
 	return nil

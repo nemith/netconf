@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"slices"
+	"strings"
+	"sync"
 )
 
 var (
@@ -31,13 +34,15 @@ type Transport interface {
 // TestTransport mocks the underlying NETCONF transport layer.
 // It allows us to queue up "Server Responses" and inspect "Client Requests".
 type TestTransport struct {
+	mu sync.Mutex
+
 	// inputs is a queue of messages the Server "sends" to the Client.
 	// The Session calls ReadMsg() to pop from this queue.
-	inputs [][]byte
+	inputs []string
 
 	// outputs captures messages the Client "sends" to the Server.
 	// The Session calls WriteMsg() to append to this list.
-	outputs [][]byte
+	outputs []string
 }
 
 type readNoopCloser struct{ io.Reader }
@@ -45,8 +50,9 @@ type readNoopCloser struct{ io.Reader }
 func (r readNoopCloser) Close() error { return nil }
 
 type testWriter struct {
-	tt  *TestTransport
-	buf *bytes.Buffer
+	tt     *TestTransport
+	buf    *bytes.Buffer
+	closed bool
 }
 
 func (w *testWriter) Write(p []byte) (int, error) {
@@ -54,18 +60,28 @@ func (w *testWriter) Write(p []byte) (int, error) {
 }
 
 func (w *testWriter) Close() error {
-	w.tt.outputs = append(w.tt.outputs, w.buf.Bytes())
+	w.tt.mu.Lock()
+	defer w.tt.mu.Unlock()
+	if w.closed {
+		return nil
+	}
+	w.closed = true
+
+	w.tt.outputs = append(w.tt.outputs, w.buf.String())
 	return nil
 }
 
 func (t *TestTransport) MsgReader() (io.ReadCloser, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	if len(t.inputs) == 0 {
 		return nil, io.EOF
 	}
 
 	msg := t.inputs[0]
 	t.inputs = t.inputs[1:]
-	return readNoopCloser{bytes.NewReader(msg)}, nil
+	return readNoopCloser{strings.NewReader(msg)}, nil
 }
 
 func (t *TestTransport) MsgWriter() (io.WriteCloser, error) {
@@ -74,7 +90,16 @@ func (t *TestTransport) MsgWriter() (io.WriteCloser, error) {
 
 func (t *TestTransport) Close() error { return nil }
 
-// Helper to push a server response into the read queue
+// AddResponse pushes a server response into the read queue
 func (t *TestTransport) AddResponse(body string) {
-	t.inputs = append(t.inputs, []byte(body))
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.inputs = append(t.inputs, body)
+}
+
+// Outputs returns the messages the client sent to the server
+func (t *TestTransport) Outputs() []string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return slices.Clone(t.outputs)
 }

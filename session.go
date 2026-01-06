@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"slices"
 	"strconv"
@@ -27,6 +27,7 @@ var ErrClosed = errors.New("closed connection")
 
 type sessionConfig struct {
 	clientCaps []string
+	logger     *slog.Logger
 }
 
 type SessionOption interface {
@@ -43,6 +44,21 @@ func WithCapability(capabilities ...string) SessionOption {
 	return capabilityOpt(capabilities)
 }
 
+type loggerOpt struct {
+	logger *slog.Logger
+}
+
+func (o loggerOpt) apply(cfg *sessionConfig) {
+	cfg.logger = o.logger
+}
+
+// WithLogger sets a custom slog.Logger for the session.
+// If not provided, slog.Default() will be used.
+// To disable logging, pass slog.New(slog.NewTextHandler(io.Discard, nil)).
+func WithLogger(logger *slog.Logger) SessionOption {
+	return loggerOpt{logger: logger}
+}
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
 	tr        transport.Transport
@@ -55,11 +71,14 @@ type Session struct {
 	mu      sync.Mutex
 	reqs    map[string]*pendingReq
 	closing bool
+
+	logger *slog.Logger
 }
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	cfg := sessionConfig{
 		clientCaps: DefaultCapabilities,
+		logger:     slog.Default(),
 	}
 
 	for _, opt := range opts {
@@ -70,6 +89,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 		tr:         transport,
 		clientCaps: NewCapabilitySet(cfg.clientCaps...),
 		reqs:       make(map[string]*pendingReq),
+		logger:     cfg.logger,
 	}
 	return s
 }
@@ -209,7 +229,8 @@ func (s *Session) recvLoop() {
 	buf := make([]byte, 4096)
 	for {
 		if err := s.recvMsg(buf); err != nil {
-			log.Printf("netconf: failed to receive message: %v", err)
+			// TODO: check for regular EOF and exit silently
+			s.logger.Error("failed to receive message", "error", err)
 			break
 		}
 	}
@@ -220,11 +241,12 @@ func (s *Session) recvLoop() {
 		close(req.reply)
 	}
 	s.mu.Unlock()
+
 	// TODO: expose this error
 	_ = s.tr.Close()
 
 	if !s.closing {
-		log.Printf("netconf: connection closed unexpectedly")
+		s.logger.Warn("connection closed unexpectedly")
 	}
 }
 
@@ -268,7 +290,7 @@ func (s *Session) recvMsg(buf []byte) error {
 	case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:
 		msgID := getMessageID(startElem.Attr)
 		if msgID == "" {
-			log.Printf("netconf: rpc-reply missing message-id")
+			s.logger.Warn("rpc-reply missing message-id")
 			return nil // Continue loop
 		}
 
@@ -278,7 +300,7 @@ func (s *Session) recvMsg(buf []byte) error {
 		s.mu.Unlock()
 
 		if !ok {
-			log.Printf("netconf: unexpected rpc-reply with message-id %s (possible timeout?)", msgID)
+			s.logger.Warn("unexpected rpc-reply", "message-id", msgID, "note", "possible timeout")
 			return nil // Continue loop
 		}
 

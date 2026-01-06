@@ -256,7 +256,7 @@ type pendingReq struct {
 	ctx context.Context
 }
 
-type replyReader struct {
+type msgReader struct {
 	io.Reader
 	closer io.Closer
 
@@ -264,7 +264,7 @@ type replyReader struct {
 	once sync.Once
 }
 
-func (r *replyReader) Close() error {
+func (r *msgReader) Close() error {
 	var err error
 	r.once.Do(func() {
 		err = r.closer.Close()
@@ -336,7 +336,7 @@ func (s *Session) recvMsg(buf []byte) error {
 		return fmt.Errorf("failed to parse message start: %w", err)
 	}
 
-	msgReader := io.MultiReader(bytes.NewReader(chunk), r)
+	combinedReader := io.MultiReader(bytes.NewReader(chunk), r)
 
 	switch startElem.Name {
 	case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:
@@ -357,8 +357,8 @@ func (s *Session) recvMsg(buf []byte) error {
 		}
 
 		readDone := make(chan struct{})
-		reader := &replyReader{
-			Reader: msgReader,
+		reader := &msgReader{
+			Reader: combinedReader,
 			closer: r, // The raw transport reader
 			done:   readDone,
 		}
@@ -385,8 +385,8 @@ func (s *Session) recvMsg(buf []byte) error {
 
 		// Create a reader for the notification that will close the transport reader
 		readDone := make(chan struct{})
-		reader := &replyReader{
-			Reader: msgReader,
+		reader := &msgReader{
+			Reader: combinedReader,
 			closer: r,
 			done:   readDone,
 		}
@@ -405,7 +405,7 @@ func (s *Session) recvMsg(buf []byte) error {
 
 // handleNotification invokes the notification handler asynchronously.
 // It ensures the message is properly closed and logs any errors from the handler.
-func (s *Session) handleNotification(reader *replyReader, attrs []xml.Attr) {
+func (s *Session) handleNotification(reader *msgReader, attrs []xml.Attr) {
 	msg := &Message{
 		reader:     reader,
 		Attributes: attrs,

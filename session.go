@@ -146,9 +146,9 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	return s
 }
 
-// Open will create a new Session with th=e given transport and open it with the
+// NewSession will create a new Session with the given transport and open it with the
 // necessary hello messages.
-func Open(transport transport.Transport, opts ...SessionOption) (*Session, error) {
+func NewSession(transport transport.Transport, opts ...SessionOption) (*Session, error) {
 	s := newSession(transport, opts...)
 
 	// this needs a timeout of some sort.

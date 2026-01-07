@@ -58,7 +58,7 @@ func Example_tls() {
 	}
 	defer transport.Close() // nolint:errcheck
 
-	session, err := netconf.Open(transport)
+	session, err := netconf.NewSession(transport)
 	if err != nil {
 		panic(err)
 	}

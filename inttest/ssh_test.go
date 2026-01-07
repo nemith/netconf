@@ -85,12 +85,12 @@ func setupSSH(t *testing.T) *netconf.Session {
 
 	tr.DebugCapture(inCap, outCap)
 
-	session, err := netconf.Open(tr)
+	session, err := netconf.NewSession(tr)
 	require.NoError(t, err, "failed to create netconf session")
 	return session
 }
 
-func TestSSHOpen(t *testing.T) {
+func TestSSHDial(t *testing.T) {
 	session := setupSSH(t)
 	assert.NotZero(t, session.SessionID())
 	assert.NotZero(t, session.ServerCaps().Len())

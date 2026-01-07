@@ -36,7 +36,7 @@ func mockSession(t *testing.T, rpcReplyInnerXML string) (*netconf.Session, *test
 	// Create Session
 	// This will immediately consume the first message (Server Hello)
 	// and write the Client Hello to tr.outputs[0].
-	s, err := netconf.Open(tr)
+	s, err := netconf.NewSession(tr)
 	require.NoError(t, err)
 
 	return s, tr

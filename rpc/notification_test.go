@@ -6,8 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 )
 
 func TestCreateSubscriptionMarshalXML(t *testing.T) {
@@ -74,8 +73,8 @@ func TestCreateSubscriptionMarshalXML(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data, err := xml.Marshal(tt.sub)
-			require.NoError(t, err)
-			assert.Equal(t, tt.wantXML, string(data))
+			be.NilErr(t, err)
+			be.Equal(t, tt.wantXML, string(data))
 		})
 	}
 }
@@ -140,9 +139,9 @@ func TestCreateSubscriptionExec(t *testing.T) {
 
 			err := tc.op.Exec(context.Background(), session)
 			if tc.shouldErr {
-				assert.Error(t, err)
+				be.Nonzero(t, err)
 			} else {
-				assert.NoError(t, err)
+				be.NilErr(t, err)
 			}
 		})
 	}

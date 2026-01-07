@@ -4,7 +4,7 @@ import (
 	"encoding/xml"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/carlmjohnson/be"
 )
 
 // Helper struct for testing struct marshaling
@@ -45,8 +45,8 @@ func TestSubtreeFilter_MarshalXML(t *testing.T) {
 			}{F: tt.input}
 
 			out, err := xml.Marshal(&wrapper)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, string(out))
+			be.NilErr(t, err)
+			be.Equal(t, tt.expected, string(out))
 		})
 	}
 }
@@ -87,8 +87,8 @@ func TestXPathFilter_MarshalXML(t *testing.T) {
 			}{F: tt.input}
 
 			out, err := xml.Marshal(&wrapper)
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected, string(out))
+			be.NilErr(t, err)
+			be.Equal(t, tt.expected, string(out))
 		})
 	}
 }

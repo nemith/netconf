@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/carlmjohnson/be"
 )
 
 var (
@@ -135,8 +135,8 @@ func TestChunkedReader_readHeader(t *testing.T) {
 			}
 
 			got, err := r.readHeader()
-			assert.ErrorIs(t, err, tt.wantErr)
-			assert.Equal(t, tt.wantSize, got)
+			be.True(t, errors.Is(err, tt.wantErr))
+			be.Equal(t, tt.wantSize, got)
 		})
 	}
 }
@@ -210,13 +210,13 @@ func TestChunkReaderReadByte(t *testing.T) {
 			buf = buf[:n]
 
 			if !errors.Is(err, io.EOF) {
-				assert.Equal(t, tc.err, err)
+				be.Equal(t, tc.err, err)
 			}
-			assert.Equal(t, tc.want, buf)
+			be.Equal(t, string(tc.want), string(buf))
 
 			closeErr := r.Close()
 			if tc.err == nil {
-				assert.NoError(t, closeErr)
+				be.NilErr(t, closeErr)
 			}
 		})
 	}
@@ -230,12 +230,12 @@ func TestChunkReaderRead(t *testing.T) {
 			}
 
 			got, err := io.ReadAll(r)
-			assert.Equal(t, tc.err, err)
-			assert.Equal(t, tc.want, got)
+			be.Equal(t, tc.err, err)
+			be.Equal(t, string(tc.want), string(got))
 
 			closeErr := r.Close()
 			if tc.err == nil {
-				assert.NoError(t, closeErr)
+				be.NilErr(t, closeErr)
 			}
 		})
 	}
@@ -246,18 +246,18 @@ func TestChunkWriter(t *testing.T) {
 	w := &chunkedWriter{w: bufio.NewWriter(&buf)}
 
 	n, err := w.Write([]byte("foo"))
-	assert.NoError(t, err)
-	assert.Equal(t, 3, n)
+	be.NilErr(t, err)
+	be.Equal(t, 3, n)
 
 	n, err = w.Write([]byte("quux"))
-	assert.NoError(t, err)
-	assert.Equal(t, 4, n)
+	be.NilErr(t, err)
+	be.Equal(t, 4, n)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	want := []byte("\n#3\nfoo\n#4\nquux\n##\n")
-	assert.Equal(t, want, buf.Bytes())
+	be.Equal(t, string(want), buf.String())
 }
 
 var (
@@ -331,14 +331,14 @@ func TestMarkedReadByte(t *testing.T) {
 			buf = buf[:n]
 
 			if !errors.Is(err, io.EOF) {
-				assert.Equal(t, err, tc.err)
+				be.Equal(t, err, tc.err)
 			}
 
-			assert.Equal(t, tc.want, buf)
+			be.Equal(t, string(tc.want), string(buf))
 
 			closeErr := r.Close()
 			if tc.err == nil {
-				assert.NoError(t, closeErr)
+				be.NilErr(t, closeErr)
 			}
 		})
 	}
@@ -351,12 +351,12 @@ func TestMarkedRead(t *testing.T) {
 				r: bufio.NewReader(bytes.NewReader(tc.input)),
 			}
 			got, err := io.ReadAll(r)
-			assert.Equal(t, err, tc.err)
-			assert.Equal(t, tc.want, got)
+			be.Equal(t, err, tc.err)
+			be.Equal(t, string(tc.want), string(got))
 
 			closeErr := r.Close()
 			if tc.err == nil {
-				assert.NoError(t, closeErr)
+				be.NilErr(t, closeErr)
 			}
 		})
 	}
@@ -367,14 +367,14 @@ func TestMarkedWriter(t *testing.T) {
 	w := &markedWriter{w: bufio.NewWriter(&buf)}
 
 	n, err := w.Write([]byte("foo"))
-	assert.NoError(t, err)
-	assert.Equal(t, 3, n)
+	be.NilErr(t, err)
+	be.Equal(t, 3, n)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	want := []byte("foo]]>]]>")
-	assert.Equal(t, want, buf.Bytes())
+	be.Equal(t, string(want), buf.String())
 }
 
 const (

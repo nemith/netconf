@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -27,15 +28,15 @@ func newTestServer(t *testing.T) *testServer {
 	t.Helper()
 
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	signer, err := ssh.NewSignerFromKey(priv)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	config := &ssh.ServerConfig{NoClientAuth: true}
 	config.AddHostKey(signer)
 
 	ln, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	return &testServer{
 		t:        t,
@@ -127,28 +128,28 @@ func TestTransport_Dial(t *testing.T) {
 
 	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	r, err := tr.MsgReader()
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	greeting, _ := io.ReadAll(r)
-	assert.Equal(t, "muffins", string(greeting))
+	be.Equal(t, "muffins", string(greeting))
 
 	w, err := tr.MsgWriter()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	out := "a man a plan a canal panama"
 	_, err = io.WriteString(w, out)
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = tr.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
-	require.NoError(t, srv.Wait(t))
-	assert.Equal(t, "a man a plan a canal panama]]>]]>", string(serverSeen))
+	be.NilErr(t, srv.Wait(t))
+	be.Equal(t, "a man a plan a canal panama]]>]]>", string(serverSeen))
 }
 
 func TestTransport_Dial_NetworkFailure(t *testing.T) {
@@ -161,10 +162,10 @@ func TestTransport_Dial_NetworkFailure(t *testing.T) {
 
 	tr, err := Dial(ctx, "tcp", "127.0.0.1:1", config)
 
-	assert.Error(t, err)
-	assert.Nil(t, tr)
+	be.Nonzero(t, err)
+	be.Zero(t, tr)
 	// Assert it's a network error
-	assert.Contains(t, err.Error(), "connection refused")
+	be.In(t, "connection refused", err.Error())
 }
 
 func TestTransport_Dial_AuthFailure(t *testing.T) {
@@ -187,18 +188,19 @@ func TestTransport_Dial_AuthFailure(t *testing.T) {
 
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
 
-	assert.Error(t, err)
-	assert.Nil(t, tr)
-	assert.ErrorContains(t, err, "unable to authenticate")
+	be.Nonzero(t, err)
+	be.Zero(t, tr)
+	be.True(t, err != nil && strings.Contains(err.Error(), "unable to authenticate"))
 
 	// For some reason ErrorsIs doesn't work here despite ssh.ErrNoAuth existing.
-	assert.ErrorContains(t, srv.Wait(t), "no auth passed yet")
+	err = srv.Wait(t)
+	be.True(t, err != nil && strings.Contains(err.Error(), "no auth passed yet"))
 }
 
 func TestTransport_DialContextCancel(t *testing.T) {
 	// Standard hanging listener pattern (no changes needed here)
 	ln, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() {
 		if err := ln.Close(); err != nil {
 			t.Logf("failed to close listener: %v", err)
@@ -221,8 +223,8 @@ func TestTransport_DialContextCancel(t *testing.T) {
 	start := time.Now()
 	_, err = Dial(ctx, "tcp", ln.Addr().String(), config)
 
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.WithinDuration(t, start, time.Now(), 200*time.Millisecond)
+	be.True(t, errors.Is(err, context.DeadlineExceeded))
+	be.True(t, time.Since(start) <= 200*time.Millisecond)
 }
 
 func TestTransport_Dial_SubsystemFails(t *testing.T) {
@@ -239,11 +241,11 @@ func TestTransport_Dial_SubsystemFails(t *testing.T) {
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
 
 	// Dial should fail because the subsystem request was rejected
-	assert.Error(t, err)
-	assert.Nil(t, tr)
+	be.Nonzero(t, err)
+	be.Zero(t, tr)
 
 	// Ensure the server finishes cleanly (client should close connection on error)
-	require.NoError(t, srv.Wait(t))
+	be.NilErr(t, srv.Wait(t))
 }
 
 func TestTransport_MultipleMessages(t *testing.T) {
@@ -262,30 +264,30 @@ func TestTransport_MultipleMessages(t *testing.T) {
 
 	config := &ssh.ClientConfig{HostKeyCallback: ssh.InsecureIgnoreHostKey()}
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	r, _ := tr.MsgReader()
 	_, err = io.ReadAll(r) // Clear greeting
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	w, _ := tr.MsgWriter()
 	_, err = io.WriteString(w, "msg1")
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	w, _ = tr.MsgWriter()
 	_, err = io.WriteString(w, "msg2")
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = tr.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
-	require.NoError(t, srv.Wait(t))
+	be.NilErr(t, srv.Wait(t))
 
-	assert.Equal(t, "msg1]]>]]>msg2]]>]]>", string(serverSeen))
+	be.Equal(t, "msg1]]>]]>msg2]]>]]>", string(serverSeen))
 }

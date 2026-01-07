@@ -13,8 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 	"nemith.io/netconf/testutil"
 )
 
@@ -84,11 +83,11 @@ func TestHello(t *testing.T) {
 
 			err := sess.handshake(context.Background())
 			if !tc.shouldError {
-				assert.NoError(t, err)
+				be.NilErr(t, err)
 			}
 
-			assert.Len(t, tr.Outputs(), 1)
-			assert.Equal(t, tc.wantID, sess.sessionID)
+			be.Equal(t, 1, len(tr.Outputs()))
+			be.Equal(t, tc.wantID, sess.sessionID)
 		})
 	}
 }
@@ -98,13 +97,13 @@ func TestWithCapability(t *testing.T) {
 
 	customCaps := []string{"urn:custom:cap:1.0", "urn:custom:cap:2.0"}
 	session, err := NewSession(tt, WithCapability(customCaps...))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Verify custom capabilities were set
-	assert.True(t, session.ClientCaps().Has("urn:custom:cap:1.0"))
-	assert.True(t, session.ClientCaps().Has("urn:custom:cap:2.0"))
-	assert.False(t, session.ClientCaps().Has(CapNetConf10))
+	be.True(t, session.ClientCaps().Has("urn:custom:cap:1.0"))
+	be.True(t, session.ClientCaps().Has("urn:custom:cap:2.0"))
+	be.False(t, session.ClientCaps().Has(CapNetConf10))
 }
 
 func TestWithLogger(t *testing.T) {
@@ -115,9 +114,9 @@ func TestWithLogger(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
 	session, err := NewSession(tt, WithLogger(logger))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	assert.Equal(t, logger, session.logger)
+	be.Equal(t, logger, session.logger)
 }
 
 func TestWithLoggerNil(t *testing.T) {
@@ -125,9 +124,9 @@ func TestWithLoggerNil(t *testing.T) {
 
 	// Nil logger should become DiscardHandler
 	session, err := NewSession(tt, WithLogger(nil))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	assert.NotNil(t, session.logger)
+	be.Nonzero(t, session.logger)
 }
 
 func TestWithNotifHandlerInterface(t *testing.T) {
@@ -136,9 +135,9 @@ func TestWithNotifHandlerInterface(t *testing.T) {
 	// Test with interface-based handler
 	handler := &testNotifHandler{}
 	session, err := NewSession(tt, WithNotifHandler(handler))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	assert.Equal(t, handler, session.notifHandler)
+	be.Nonzero(t, session.notifHandler)
 }
 
 type testNotifHandler struct {
@@ -163,39 +162,39 @@ func TestMultipleOptions(t *testing.T) {
 		WithLogger(logger),
 		WithNotifHandler(handler),
 	)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
-	assert.True(t, session.ClientCaps().Has("urn:custom:cap:1.0"))
-	assert.Equal(t, logger, session.logger)
-	assert.Equal(t, handler, session.notifHandler)
+	be.True(t, session.ClientCaps().Has("urn:custom:cap:1.0"))
+	be.Equal(t, logger, session.logger)
+	be.Nonzero(t, session.notifHandler)
 }
 
 func TestNewSession(t *testing.T) {
 	tt := testutil.NewTransport(nil)
 	session := newSession(tt)
 
-	assert.NotNil(t, session)
-	assert.Equal(t, tt, session.tr)
-	assert.NotNil(t, session.clientCaps)
-	assert.NotNil(t, session.reqs)
-	assert.NotNil(t, session.notifCtx)
-	assert.NotNil(t, session.notifCancel)
-	assert.NotNil(t, session.logger)
-	assert.Equal(t, uint64(0), session.sessionID)
+	be.Nonzero(t, session)
+	be.Nonzero(t, session.tr)
+	be.Nonzero(t, session.clientCaps)
+	be.Equal(t, 0, len(session.reqs))
+	be.Nonzero(t, session.notifCtx)
+	be.Nonzero(t, session.notifCancel)
+	be.Nonzero(t, session.logger)
+	be.Equal(t, uint64(0), session.sessionID)
 }
 
 func TestNewSessionSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	require.NotNil(t, session)
+	be.Nonzero(t, session)
 
-	assert.Equal(t, uint64(42), session.sessionID)
-	assert.NotNil(t, session.serverCaps)
-	assert.True(t, session.ServerCaps().Has(CapNetConf10))
+	be.Equal(t, uint64(42), session.sessionID)
+	be.Nonzero(t, session.serverCaps)
+	be.True(t, session.ServerCaps().Has(CapNetConf10))
 }
 
 func TestNewSessionHandshakeFailure(t *testing.T) {
@@ -204,11 +203,11 @@ func TestNewSessionHandshakeFailure(t *testing.T) {
 	})
 
 	session, err := NewSession(tt)
-	assert.Error(t, err)
-	assert.Nil(t, session)
+	be.Nonzero(t, err)
+	be.Zero(t, session)
 
 	// Transport should be closed on error
-	assert.True(t, tt.Closed())
+	be.True(t, tt.Closed())
 }
 
 func TestNextMessageID(t *testing.T) {
@@ -220,9 +219,9 @@ func TestNextMessageID(t *testing.T) {
 	id2 := session.nextMessageID()
 	id3 := session.nextMessageID()
 
-	assert.Equal(t, "1", id1)
-	assert.Equal(t, "2", id2)
-	assert.Equal(t, "3", id3)
+	be.Equal(t, "1", id1)
+	be.Equal(t, "2", id2)
+	be.Equal(t, "3", id3)
 }
 
 func TestPrepareWithoutMessageID(t *testing.T) {
@@ -232,8 +231,8 @@ func TestPrepareWithoutMessageID(t *testing.T) {
 	rpc := &RPC{Operation: "test"}
 	prepared := session.Prepare(rpc)
 
-	assert.NotEmpty(t, prepared.MessageID)
-	assert.Equal(t, "1", prepared.MessageID)
+	be.Nonzero(t, len(prepared.MessageID))
+	be.Equal(t, "1", prepared.MessageID)
 }
 
 func TestPrepareWithMessageID(t *testing.T) {
@@ -243,7 +242,7 @@ func TestPrepareWithMessageID(t *testing.T) {
 	rpc := &RPC{Operation: "test", MessageID: "custom-id"}
 	prepared := session.Prepare(rpc)
 
-	assert.Equal(t, "custom-id", prepared.MessageID)
+	be.Equal(t, "custom-id", prepared.MessageID)
 }
 
 func TestPrepareDoesNotMutate(t *testing.T) {
@@ -254,29 +253,29 @@ func TestPrepareDoesNotMutate(t *testing.T) {
 	prepared := session.Prepare(rpc)
 
 	// Original should not have message ID
-	assert.Empty(t, rpc.MessageID)
+	be.Equal(t, 0, len(rpc.MessageID))
 	// Prepared should have message ID
-	assert.NotEmpty(t, prepared.MessageID)
+	be.Nonzero(t, len(prepared.MessageID))
 }
 
 func TestDoSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	rpc := NewRPC("test-op")
 	ctx := context.Background()
 	msg, err := session.Do(ctx, rpc)
 
-	require.NoError(t, err)
-	require.NotNil(t, msg)
+	be.NilErr(t, err)
+	be.Nonzero(t, msg)
 	defer func() {
 		_ = msg.Close()
 	}()
 
-	assert.Equal(t, "1", msg.MessageID())
+	be.Equal(t, "1", msg.MessageID())
 }
 
 func TestDoDuplicateMessageID(t *testing.T) {
@@ -298,15 +297,15 @@ func TestDoDuplicateMessageID(t *testing.T) {
 
 	// Second request with same ID should fail
 	_, err := session.Do(ctx, rpc)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already pending")
+	be.Nonzero(t, err)
+	be.In(t, "already pending", err.Error())
 }
 
 func TestDoContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -315,16 +314,16 @@ func TestDoContextCanceled(t *testing.T) {
 	rpc := NewRPC("test-op")
 	msg, err := session.Do(ctx, rpc)
 
-	assert.Error(t, err)
-	assert.Nil(t, msg)
-	assert.Equal(t, context.Canceled, err)
+	be.Nonzero(t, err)
+	be.Zero(t, msg)
+	be.Equal(t, context.Canceled, err)
 }
 
 func TestDoSessionClosed(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Close the transport to simulate connection loss
 	_ = tt.Close()
@@ -336,8 +335,8 @@ func TestDoSessionClosed(t *testing.T) {
 	ctx := context.Background()
 	msg, err := session.Do(ctx, rpc)
 
-	assert.Error(t, err)
-	assert.Nil(t, msg)
+	be.Nonzero(t, err)
+	be.Zero(t, msg)
 }
 
 func TestExecSuccess(t *testing.T) {
@@ -350,7 +349,7 @@ func TestExecSuccess(t *testing.T) {
 	})
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	type TestReply struct {
@@ -362,8 +361,8 @@ func TestExecSuccess(t *testing.T) {
 
 	var reply TestReply
 	err = session.Exec(context.Background(), "test-op", &reply)
-	require.NoError(t, err)
-	assert.Equal(t, "success", reply.Data.Result)
+	be.NilErr(t, err)
+	be.Equal(t, "success", reply.Data.Result)
 }
 
 func TestExecWithRPCError(t *testing.T) {
@@ -381,16 +380,16 @@ func TestExecWithRPCError(t *testing.T) {
 	})
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	err = session.Exec(context.Background(), "test-op", nil)
-	assert.Error(t, err)
+	be.Nonzero(t, err)
 
 	var rpcErrors RPCErrors
-	assert.True(t, errors.As(err, &rpcErrors))
-	assert.Len(t, rpcErrors, 1)
-	assert.Equal(t, "Test error", rpcErrors[0].Message)
+	be.True(t, errors.As(err, &rpcErrors))
+	be.Equal(t, 1, len(rpcErrors))
+	be.Equal(t, "Test error", rpcErrors[0].Message)
 }
 
 func TestExecWithRPCWarning(t *testing.T) {
@@ -409,45 +408,45 @@ func TestExecWithRPCWarning(t *testing.T) {
 	})
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	err = session.Exec(context.Background(), "test-op", nil)
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 }
 
 func TestExecNilReply(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Should not panic with nil reply
 	err = session.Exec(context.Background(), "test-op", nil)
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 }
 
 func TestExecContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	err = session.Exec(ctx, "test-op", nil)
-	assert.Error(t, err)
-	assert.Equal(t, context.Canceled, err)
+	be.Nonzero(t, err)
+	be.Equal(t, context.Canceled, err)
 }
 
 func TestRecvMsgMissingMessageID(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	_, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Push reply without message-id (should be logged and ignored)
@@ -461,7 +460,7 @@ func TestRecvMsgUnexpectedReply(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	_, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Push reply with message-id that doesn't match any pending request
@@ -475,7 +474,7 @@ func TestRecvMsgUnknownMessageType(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	_, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Push unknown message type
 	tt.Push(`<unknown-message xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"/>`)
@@ -484,18 +483,18 @@ func TestRecvMsgUnknownMessageType(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Transport should be closed
-	assert.True(t, tt.Closed())
+	be.True(t, tt.Closed())
 }
 
 func TestCloseSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = session.Close(context.Background())
-	assert.NoError(t, err)
-	assert.True(t, tt.Closed())
+	be.NilErr(t, err)
+	be.True(t, tt.Closed())
 }
 
 func TestCloseWithPendingRequests(t *testing.T) {
@@ -508,7 +507,7 @@ func TestCloseWithPendingRequests(t *testing.T) {
 	})
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Start a request in background
 	done := make(chan error, 1)
@@ -527,8 +526,8 @@ func TestCloseWithPendingRequests(t *testing.T) {
 	// Request should receive ErrClosed
 	select {
 	case err := <-done:
-		assert.Error(t, err)
-		assert.Equal(t, ErrClosed, err)
+		be.Nonzero(t, err)
+		be.Equal(t, ErrClosed, err)
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for request to fail")
 	}
@@ -538,12 +537,12 @@ func TestCloseNotifContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	notifCtx := session.notifCtx
 
 	err = session.Close(context.Background())
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Notification context should be canceled
 	select {
@@ -558,7 +557,7 @@ func TestConcurrentDo(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	const numRequests = 10
 
@@ -582,8 +581,8 @@ func TestConcurrentDo(t *testing.T) {
 	wg.Wait()
 
 	// All requests should succeed
-	for i, err := range results {
-		assert.NoError(t, err, "request %d failed", i)
+	for _, err := range results {
+		be.NilErr(t, err)
 	}
 
 	_ = tt.Close()
@@ -617,13 +616,13 @@ func TestConcurrentDoAndNotifications(t *testing.T) {
 	})
 
 	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Send RPC
 	rpc := NewRPC("test-op")
 	msg, err := session.Do(context.Background(), rpc)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	_ = msg.Close()
 
 	// Should have received both notifications
@@ -646,35 +645,35 @@ func TestSessionID(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
-	assert.Equal(t, uint64(42), session.SessionID())
+	be.Equal(t, uint64(42), session.SessionID())
 }
 
 func TestClientCaps(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	caps := session.ClientCaps()
-	assert.NotNil(t, caps)
-	assert.True(t, caps.Has(CapNetConf10))
+	be.Nonzero(t, caps)
+	be.True(t, caps.Has(CapNetConf10))
 }
 
 func TestServerCaps(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	caps := session.ServerCaps()
-	assert.NotNil(t, caps)
-	assert.True(t, caps.Has(CapNetConf10))
-	assert.True(t, caps.Has(CapNetConf11))
+	be.Nonzero(t, caps)
+	be.True(t, caps.Has(CapNetConf10))
+	be.True(t, caps.Has(CapNetConf11))
 }
 
 func TestStartElement(t *testing.T) {
@@ -685,9 +684,9 @@ func TestStartElement(t *testing.T) {
 	decoder := xml.NewDecoder(strings.NewReader(xmlData))
 	elem, err := startElement(decoder)
 
-	require.NoError(t, err)
-	assert.Equal(t, "root", elem.Name.Local)
-	assert.Equal(t, "test", elem.Name.Space)
+	be.NilErr(t, err)
+	be.Equal(t, "root", elem.Name.Local)
+	be.Equal(t, "test", elem.Name.Space)
 }
 
 func TestStartElementEOF(t *testing.T) {
@@ -696,9 +695,9 @@ func TestStartElementEOF(t *testing.T) {
 	decoder := xml.NewDecoder(strings.NewReader(xmlData))
 	elem, err := startElement(decoder)
 
-	assert.Error(t, err)
-	assert.Nil(t, elem)
-	assert.Equal(t, io.EOF, err)
+	be.Nonzero(t, err)
+	be.Zero(t, elem)
+	be.Equal(t, io.EOF, err)
 }
 
 func TestGetMessageID(t *testing.T) {
@@ -709,7 +708,7 @@ func TestGetMessageID(t *testing.T) {
 	}
 
 	msgID := getMessageID(attrs)
-	assert.Equal(t, "12345", msgID)
+	be.Equal(t, "12345", msgID)
 }
 
 func TestGetMessageIDMissing(t *testing.T) {
@@ -719,7 +718,7 @@ func TestGetMessageIDMissing(t *testing.T) {
 	}
 
 	msgID := getMessageID(attrs)
-	assert.Equal(t, "", msgID)
+	be.Equal(t, "", msgID)
 }
 
 func TestMsgReaderClose(t *testing.T) {
@@ -737,8 +736,8 @@ func TestMsgReaderClose(t *testing.T) {
 	}
 
 	err := reader.Close()
-	assert.NoError(t, err)
-	assert.True(t, closed)
+	be.NilErr(t, err)
+	be.True(t, closed)
 
 	// Check that done channel is closed
 	select {
@@ -767,7 +766,7 @@ func TestMsgReaderDoubleClose(t *testing.T) {
 	_ = reader.Close()
 
 	// Should only close once due to sync.Once
-	assert.Equal(t, 1, closeCount)
+	be.Equal(t, 1, closeCount)
 }
 
 type testCloser struct {
@@ -791,7 +790,7 @@ func TestNotificationMessageNotClosed(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	_, err := NewSession(tt, WithNotifHandlerFunc(handler))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Push a notification
@@ -823,7 +822,7 @@ func TestNotificationConcurrent(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	_, err := NewSession(tt, WithNotifHandlerFunc(handler))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Push 5 notifications
@@ -836,7 +835,7 @@ func TestNotificationConcurrent(t *testing.T) {
 	// Wait for all notifications to be processed
 	time.Sleep(200 * time.Millisecond)
 
-	assert.Equal(t, int32(5), count.Load())
+	be.Equal(t, int32(5), count.Load())
 }
 
 // upgradableTransport is a test transport that supports Upgrade()
@@ -863,12 +862,12 @@ func TestHandshakeUpgrade(t *testing.T) {
 
 	// Client also supports 1.1 by default
 	session, err := NewSession(ut)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	assert.NotNil(t, session)
+	be.Nonzero(t, session)
 
 	// Transport should have been upgraded
-	assert.True(t, ut.upgraded)
+	be.True(t, ut.upgraded)
 }
 
 func TestHandshakeNoUpgradeWhenServerLacks11(t *testing.T) {
@@ -883,12 +882,12 @@ func TestHandshakeNoUpgradeWhenServerLacks11(t *testing.T) {
 	ut := &upgradableTransport{Transport: tt}
 
 	session, err := NewSession(ut)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	assert.NotNil(t, session)
+	be.Nonzero(t, session)
 
 	// Transport should NOT have been upgraded
-	assert.False(t, ut.upgraded)
+	be.False(t, ut.upgraded)
 }
 
 // errorTransport returns an error on Close()
@@ -908,11 +907,11 @@ func TestCloseTransportError(t *testing.T) {
 	et := &errorTransport{Transport: tt, closeErr: customErr}
 
 	session, err := NewSession(et)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = session.Close(context.Background())
-	assert.Error(t, err)
-	assert.Equal(t, customErr, err)
+	be.Nonzero(t, err)
+	be.Equal(t, customErr, err)
 }
 
 func TestNotificationHandler(t *testing.T) {
@@ -933,8 +932,8 @@ func TestNotificationHandler(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
-	require.NoError(t, err)
-	require.NotNil(t, session.notifHandler)
+	be.NilErr(t, err)
+	be.Nonzero(t, session.notifHandler)
 
 	// Push an unsolicited notification
 	tt.Push(`<notification xmlns="urn:ietf:params:xml:ns:netconf:notification:1.0">
@@ -944,7 +943,7 @@ func TestNotificationHandler(t *testing.T) {
 	// Wait for notification to be received
 	select {
 	case eventTime := <-received:
-		assert.Equal(t, "2024-01-05T12:34:56Z", eventTime)
+		be.Equal(t, "2024-01-05T12:34:56Z", eventTime)
 	case <-time.After(1 * time.Second):
 		t.Fatal("timeout waiting for notification")
 	}
@@ -960,7 +959,7 @@ func TestNotificationHandlerContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
 	// Verify context is not cancelled initially
@@ -993,8 +992,8 @@ func TestNotificationDecoding(t *testing.T) {
 
 	var notif Notification
 	err := xml.Unmarshal([]byte(xmlData), &notif)
-	require.NoError(t, err)
-	assert.Equal(t, "2024-01-05T12:34:56Z", notif.EventTime.Format(time.RFC3339))
+	be.NilErr(t, err)
+	be.Equal(t, "2024-01-05T12:34:56Z", notif.EventTime.Format(time.RFC3339))
 }
 
 func TestNotificationWithoutHandler(t *testing.T) {
@@ -1002,33 +1001,33 @@ func TestNotificationWithoutHandler(t *testing.T) {
 
 	// Create session WITHOUT notification handler
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
-	require.Nil(t, session.notifHandler)
+	be.Zero(t, session.notifHandler)
 
 	// Verify we can still use the session normally
-	assert.NotNil(t, session.notifCtx)
-	assert.NotNil(t, session.notifCancel)
+	be.Nonzero(t, session.notifCtx)
+	be.Nonzero(t, session.notifCancel)
 }
 
 func TestWithHelloTimeout(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt, WithHelloTimeout(5*time.Second))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
-	assert.Equal(t, 5*time.Second, session.helloTimeout)
+	be.Equal(t, 5*time.Second, session.helloTimeout)
 }
 
 func TestWithHelloTimeoutDefault(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	session, err := NewSession(tt)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
-	assert.Equal(t, DefaultHelloTimeout, session.helloTimeout)
+	be.Equal(t, DefaultHelloTimeout, session.helloTimeout)
 }
 
 func TestHelloTimeoutExpired(t *testing.T) {
@@ -1039,11 +1038,11 @@ func TestHelloTimeoutExpired(t *testing.T) {
 
 	// Use a very short timeout
 	_, err := NewSession(tt, WithHelloTimeout(50*time.Millisecond))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "context deadline exceeded")
+	be.Nonzero(t, err)
+	be.In(t, "context deadline exceeded", err.Error())
 
 	// Transport should be closed on error
-	assert.True(t, tt.Closed())
+	be.True(t, tt.Closed())
 }
 
 func TestHelloTimeoutDisabled(t *testing.T) {
@@ -1051,8 +1050,8 @@ func TestHelloTimeoutDisabled(t *testing.T) {
 
 	// Timeout of 0 means no timeout
 	session, err := NewSession(tt, WithHelloTimeout(0))
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() { _ = tt.Close() }()
 
-	assert.Equal(t, time.Duration(0), session.helloTimeout)
+	be.Equal(t, time.Duration(0), session.helloTimeout)
 }

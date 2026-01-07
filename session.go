@@ -107,13 +107,13 @@ type Session struct {
 	tr        transport.Transport
 	sessionID uint64
 	seq       atomic.Uint64
+	closing   atomic.Bool
 
 	clientCaps CapabilitySet
 	serverCaps CapabilitySet
 
-	mu      sync.Mutex
-	reqs    map[string]*pendingReq
-	closing bool
+	mu   sync.Mutex
+	reqs map[string]*pendingReq
 
 	notifHandler NotifHandler
 	notifCtx     context.Context
@@ -281,8 +281,10 @@ func (s *Session) recvLoop() {
 	buf := make([]byte, 4096)
 	for {
 		if err := s.recvMsg(buf); err != nil {
-			// TODO: check for regular EOF and exit silently
-			s.logger.Error("failed to receive message", "error", err)
+			// Only log errors for unexpected failures (not graceful shutdown)
+			if !s.closing.Load() && !errors.Is(err, io.EOF) {
+				s.logger.Error("failed to receive message", "error", err)
+			}
 			break
 		}
 	}
@@ -292,13 +294,11 @@ func (s *Session) recvLoop() {
 	for _, req := range s.reqs {
 		close(req.msg)
 	}
-	closing := s.closing
 	s.mu.Unlock()
 
-	// TODO: expose this error
 	_ = s.tr.Close()
 
-	if !closing {
+	if !s.closing.Load() {
 		s.logger.Warn("connection closed unexpectedly")
 	}
 }
@@ -524,9 +524,7 @@ func (s *Session) Exec(ctx context.Context, op any, reply any) error {
 // Close will gracefully close the sessions first by sending a `close-session`
 // operation to the remote and then closing the underlying transport
 func (s *Session) Close(ctx context.Context) error {
-	s.mu.Lock()
-	s.closing = true
-	s.mu.Unlock()
+	s.closing.Store(true)
 
 	// Cancel notification context to signal handlers to stop
 	s.notifCancel()

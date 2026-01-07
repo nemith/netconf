@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (87.4%)</option>
+				<option value="file7">nemith.io/netconf/session.go (87.9%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
@@ -1440,13 +1440,13 @@ func NewSession(transport transport.Transport, opts ...SessionOption) (*Session,
 }
 
 // handshake exchanges handshake messages and reports if there are any errors.
-func (s *Session) handshake(ctx context.Context) error <span class="cov9" title="42">{
+func (s *Session) handshake(ctx context.Context) error <span class="cov8" title="42">{
         // If context times out or is cancelled, close the transport to unblock
         // any pending read/write operations.
         stop := context.AfterFunc(ctx, func() </span><span class="cov1" title="1">{
                 _ = s.tr.Close()
         }</span>)
-        <span class="cov9" title="42">defer stop()
+        <span class="cov8" title="42">defer stop()
 
         clientMsg := Hello{
                 Capabilities: slices.Collect(s.clientCaps.All()),
@@ -1460,7 +1460,7 @@ func (s *Session) handshake(ctx context.Context) error <span class="cov9" title=
                 <span class="cov0" title="0">return fmt.Errorf("failed to get hello message writer: %w", err)</span>
         }
 
-        <span class="cov9" title="42">if err := xml.NewEncoder(w).Encode(&amp;clientMsg); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="42">if err := xml.NewEncoder(w).Encode(&amp;clientMsg); err != nil </span><span class="cov0" title="0">{
                 _ = w.Close()
                 if ctx.Err() != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("hello handshake: %w", ctx.Err())
@@ -1468,14 +1468,14 @@ func (s *Session) handshake(ctx context.Context) error <span class="cov9" title=
                 <span class="cov0" title="0">return fmt.Errorf("failed to write hello message: %w", err)</span>
         }
 
-        <span class="cov9" title="42">if err := w.Close(); err != nil </span><span class="cov0" title="0">{
+        <span class="cov8" title="42">if err := w.Close(); err != nil </span><span class="cov0" title="0">{
                 if ctx.Err() != nil </span><span class="cov0" title="0">{
                         return fmt.Errorf("hello handshake: %w", ctx.Err())
                 }</span>
                 <span class="cov0" title="0">return fmt.Errorf("failed to close hello message writer: %w", err)</span>
         }
 
-        <span class="cov9" title="42">r, err := s.tr.MsgReader()
+        <span class="cov8" title="42">r, err := s.tr.MsgReader()
         if err != nil </span><span class="cov1" title="1">{
                 if ctx.Err() != nil </span><span class="cov1" title="1">{
                         return fmt.Errorf("hello handshake: %w", ctx.Err())
@@ -1535,14 +1535,14 @@ func (s *Session) ServerCaps() *CapabilitySet <span class="cov2" title="2">{
 
 // startElement will walk though a xml.Decode until it finds a start element
 // and returns it.
-func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="34">{
-        for </span><span class="cov8" title="38">{
+func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="35">{
+        for </span><span class="cov8" title="39">{
                 tok, err := d.Token()
                 if err != nil </span><span class="cov1" title="1">{
                         return nil, err
                 }</span>
 
-                <span class="cov8" title="37">if start, ok := tok.(xml.StartElement); ok </span><span class="cov8" title="33">{
+                <span class="cov8" title="38">if start, ok := tok.(xml.StartElement); ok </span><span class="cov8" title="34">{
                         return &amp;start, nil
                 }</span>
         }
@@ -1576,7 +1576,7 @@ func (s *Session) recvLoop() <span class="cov8" title="36">{
         // buffer used to "peel" into the message enough to read the first element
         // (i.e &lt;rpc-reply&gt; or &lt;notification&gt;)
         buf := make([]byte, 4096)
-        for </span><span class="cov10" title="67">{
+        for </span><span class="cov10" title="68">{
                 if err := s.recvMsg(buf); err != nil </span><span class="cov8" title="36">{
                         // Only log errors for unexpected failures (not graceful shutdown)
                         if !s.closing.Load() &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov1" title="1">{
@@ -1600,33 +1600,33 @@ func (s *Session) recvLoop() <span class="cov8" title="36">{
         }</span>
 }
 
-func getMessageID(attrs []xml.Attr) string <span class="cov7" title="24">{
-        for _, attr := range attrs </span><span class="cov9" title="47">{
-                if attr.Name.Local == "message-id" </span><span class="cov7" title="22">{
+func getMessageID(attrs []xml.Attr) string <span class="cov7" title="25">{
+        for _, attr := range attrs </span><span class="cov9" title="49">{
+                if attr.Name.Local == "message-id" </span><span class="cov7" title="23">{
                         return attr.Value
                 }</span>
         }
         <span class="cov2" title="2">return ""</span>
 }
 
-func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
+func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="68">{
         r, err := s.tr.MsgReader()
         if err != nil </span><span class="cov8" title="35">{
                 return err
         }</span>
-        <span class="cov8" title="32">defer func() </span><span class="cov8" title="32">{
+        <span class="cov8" title="33">defer func() </span><span class="cov8" title="33">{
                 if err := r.Close(); err != nil </span><span class="cov0" title="0">{
                         s.logger.Warn("failed to close message reader", "error", err)
                 }</span>
         }()
 
         // 3. Peek/Read the start of the message
-        <span class="cov8" title="32">n, err := r.Read(buf)
+        <span class="cov8" title="33">n, err := r.Read(buf)
         if err != nil &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="32">chunk := buf[:n]
+        <span class="cov8" title="33">chunk := buf[:n]
         decoder := xml.NewDecoder(bytes.NewReader(chunk))
 
         startElem, err := startElement(decoder)
@@ -1634,17 +1634,17 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
                 return fmt.Errorf("failed to parse message start: %w", err)
         }</span>
 
-        <span class="cov8" title="32">combinedReader := io.MultiReader(bytes.NewReader(chunk), r)
+        <span class="cov8" title="33">combinedReader := io.MultiReader(bytes.NewReader(chunk), r)
 
         switch startElem.Name </span>{
-        case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:<span class="cov7" title="22">
+        case xml.Name{Space: NetconfNamespace, Local: "rpc-reply"}:<span class="cov7" title="23">
                 msgID := getMessageID(startElem.Attr)
                 if msgID == "" </span><span class="cov1" title="1">{
                         s.logger.Warn("rpc-reply missing message-id")
                         return nil // Continue loop
                 }</span>
 
-                <span class="cov7" title="21">s.mu.Lock()
+                <span class="cov7" title="22">s.mu.Lock()
                 req, ok := s.reqs[msgID]
                 delete(s.reqs, msgID)
                 s.mu.Unlock()
@@ -1654,7 +1654,7 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
                         return nil // Continue loop
                 }</span>
 
-                <span class="cov7" title="20">readDone := make(chan struct{})
+                <span class="cov7" title="21">readDone := make(chan struct{})
                 reader := &amp;msgReader{
                         Reader: combinedReader,
                         closer: r, // The raw transport reader
@@ -1671,7 +1671,7 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
                         &lt;-readDone
                         return nil</span>
 
-                case &lt;-req.ctx.Done():<span class="cov0" title="0">
+                case &lt;-req.ctx.Done():<span class="cov1" title="1">
                         return nil</span>
                 }
 

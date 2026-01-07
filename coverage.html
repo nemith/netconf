@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (91.4%)</option>
+				<option value="file7">nemith.io/netconf/session.go (88.3%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
@@ -136,12 +136,12 @@ var DefaultCapabilities = []string{
 
 // ExpandCapability will automatically add the standard capability prefix of
 // `urn:ietf:params:netconf:capability` if not already present.
-func ExpandCapability(s string) string <span class="cov10" title="221">{
+func ExpandCapability(s string) string <span class="cov10" title="241">{
         if s == "" </span><span class="cov0" title="0">{
                 return ""
         }</span>
 
-        <span class="cov10" title="221">if s[0] != ':' </span><span class="cov10" title="221">{
+        <span class="cov10" title="241">if s[0] != ':' </span><span class="cov10" title="241">{
                 return s
         }</span>
 
@@ -154,15 +154,15 @@ type CapabilitySet struct {
 
 // NewCapabilitySet creates a new CapabilitySet and adds any provided
 // capabilities.
-func NewCapabilitySet(capabilities ...string) CapabilitySet <span class="cov8" title="74">{
+func NewCapabilitySet(capabilities ...string) CapabilitySet <span class="cov8" title="81">{
         cs := CapabilitySet{
                 caps: make(map[string]struct{}),
         }
-        for _, cap := range capabilities </span><span class="cov9" title="146">{
+        for _, cap := range capabilities </span><span class="cov9" title="160">{
                 cap = ExpandCapability(cap)
                 cs.caps[cap] = struct{}{}
         }</span>
-        <span class="cov8" title="74">return cs</span>
+        <span class="cov8" title="81">return cs</span>
 }
 
 // Len returns the number of capabilities in the set.
@@ -172,9 +172,9 @@ func (cs CapabilitySet) Len() int <span class="cov0" title="0">{
 
 // All returns an iterator over all capabilities in the set.  If you want a
 // slice use `slices.Collect(cs.All())`.
-func (cs CapabilitySet) All() iter.Seq[string] <span class="cov7" title="38">{
-        return func(yield func(string) bool) </span><span class="cov7" title="38">{
-                for cap := range cs.caps </span><span class="cov8" title="67">{
+func (cs CapabilitySet) All() iter.Seq[string] <span class="cov7" title="42">{
+        return func(yield func(string) bool) </span><span class="cov7" title="42">{
+                for cap := range cs.caps </span><span class="cov8" title="75">{
                         if !yield(cap) </span><span class="cov0" title="0">{
                                 return
                         }</span>
@@ -184,7 +184,7 @@ func (cs CapabilitySet) All() iter.Seq[string] <span class="cov7" title="38">{
 
 // Has will return true if the capability is present in the set.  The given
 // capability is expanded with `ExpandCapability` if needed.
-func (cs CapabilitySet) Has(s string) bool <span class="cov8" title="75">{
+func (cs CapabilitySet) Has(s string) bool <span class="cov8" title="81">{
         s = ExpandCapability(s)
         _, ok := cs.caps[s]
         return ok
@@ -1260,6 +1260,7 @@ import (
         "sync"
         "sync/atomic"
         "syscall"
+        "time"
 
         "nemith.io/netconf/transport"
 )
@@ -1269,7 +1270,10 @@ const (
         NotificationNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
 )
 
-var ErrClosed = errors.New("closed connection")
+var (
+        ErrClosed           = errors.New("closed connection")
+        ErrHandshakeTimeout = errors.New("handshake timeout")
+)
 
 // NotificationHandler is called when a notification message is received from
 // the server. The handler is called asynchronously in its own goroutine.
@@ -1288,10 +1292,14 @@ type NotifHandler interface {
         HandleNotification(ctx context.Context, msg *Message)
 }
 
+// DefaultHelloTimeout is the default timeout for the hello handshake.
+const DefaultHelloTimeout = 30 * time.Second
+
 type sessionConfig struct {
         clientCaps   []string
         logger       *slog.Logger
         notifHandler NotifHandler
+        helloTimeout time.Duration
 }
 
 type SessionOption interface {
@@ -1348,12 +1356,26 @@ func WithNotifHandlerFunc(handlerFunc func(context.Context, *Message)) SessionOp
         return notifHandlerOpt{handler: NotifHandlerFunc(handlerFunc)}
 }</span>
 
+type helloTimeoutOpt time.Duration
+
+func (o helloTimeoutOpt) apply(cfg *sessionConfig) <span class="cov3" title="3">{
+        cfg.helloTimeout = time.Duration(o)
+}</span>
+
+// WithHelloTimeout sets the timeout for the hello handshake exchange.
+// If not set, DefaultHelloTimeout (30 seconds) is used.
+// Set to 0 to disable the timeout (not recommended).
+func WithHelloTimeout(d time.Duration) SessionOption <span class="cov3" title="3">{
+        return helloTimeoutOpt(d)
+}</span>
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
-        tr        transport.Transport
-        sessionID uint64
-        seq       atomic.Uint64
-        closing   atomic.Bool
+        tr           transport.Transport
+        sessionID    uint64
+        seq          atomic.Uint64
+        closing      atomic.Bool
+        helloTimeout time.Duration
 
         clientCaps CapabilitySet
         serverCaps CapabilitySet
@@ -1368,17 +1390,18 @@ type Session struct {
         logger *slog.Logger
 }
 
-func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="40">{
+func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov9" title="44">{
         cfg := sessionConfig{
-                clientCaps: DefaultCapabilities,
-                logger:     slog.Default(),
+                clientCaps:   DefaultCapabilities,
+                logger:       slog.Default(),
+                helloTimeout: DefaultHelloTimeout,
         }
 
-        for _, opt := range opts </span><span class="cov6" title="12">{
+        for _, opt := range opts </span><span class="cov6" title="15">{
                 opt.apply(&amp;cfg)
         }</span>
 
-        <span class="cov8" title="40">notifCtx, notifCancel := context.WithCancel(context.Background())
+        <span class="cov9" title="44">notifCtx, notifCancel := context.WithCancel(context.Background())
 
         s := &amp;Session{
                 tr:           transport,
@@ -1388,81 +1411,107 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
                 notifCtx:     notifCtx,
                 notifCancel:  notifCancel,
                 logger:       cfg.logger,
+                helloTimeout: cfg.helloTimeout,
         }
         return s</span>
 }
 
 // NewSession will create a new Session with the given transport and open it with the
 // necessary hello messages.
-func NewSession(transport transport.Transport, opts ...SessionOption) (*Session, error) <span class="cov8" title="34">{
+func NewSession(transport transport.Transport, opts ...SessionOption) (*Session, error) <span class="cov8" title="38">{
         s := newSession(transport, opts...)
 
-        // this needs a timeout of some sort.
-        if err := s.handshake(); err != nil </span><span class="cov1" title="1">{
+        ctx := context.Background()
+        if s.helloTimeout &gt; 0 </span><span class="cov8" title="37">{
+                var cancel context.CancelFunc
+                ctx, cancel = context.WithTimeoutCause(ctx, s.helloTimeout, ErrHandshakeTimeout)
+                defer cancel()
+        }</span>
+
+        <span class="cov8" title="38">if err := s.handshake(ctx); err != nil </span><span class="cov2" title="2">{
                 s.tr.Close() // nolint:errcheck // TODO: catch and log err
                 return nil, err
         }</span>
 
-        <span class="cov8" title="33">go s.recvLoop()
+        <span class="cov8" title="36">go s.recvLoop()
         return s, nil</span>
 }
 
 // handshake exchanges handshake messages and reports if there are any errors.
-func (s *Session) handshake() error <span class="cov8" title="38">{
+func (s *Session) handshake(ctx context.Context) error <span class="cov9" title="42">{
+        // If context times out or is cancelled, close the transport to unblock
+        // any pending read/write operations.
+        stop := context.AfterFunc(ctx, func() </span><span class="cov1" title="1">{
+                _ = s.tr.Close()
+        }</span>)
+        <span class="cov9" title="42">defer stop()
+
         clientMsg := Hello{
                 Capabilities: slices.Collect(s.clientCaps.All()),
         }
 
         w, err := s.tr.MsgWriter()
         if err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to get hello message writer: %w", err)
-        }</span>
-        <span class="cov8" title="38">defer func() </span><span class="cov8" title="38">{
-                // TODO: expose this error
+                if ctx.Err() != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("hello handshake: %w", ctx.Err())
+                }</span>
+                <span class="cov0" title="0">return fmt.Errorf("failed to get hello message writer: %w", err)</span>
+        }
+
+        <span class="cov9" title="42">if err := xml.NewEncoder(w).Encode(&amp;clientMsg); err != nil </span><span class="cov0" title="0">{
                 _ = w.Close()
-        }</span>()
+                if ctx.Err() != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("hello handshake: %w", ctx.Err())
+                }</span>
+                <span class="cov0" title="0">return fmt.Errorf("failed to write hello message: %w", err)</span>
+        }
 
-        <span class="cov8" title="38">if err := xml.NewEncoder(w).Encode(&amp;clientMsg); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to write hello message: %w", err)
-        }</span>
-        <span class="cov8" title="38">if err := w.Close(); err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to close hello message writer: %w", err)
-        }</span>
+        <span class="cov9" title="42">if err := w.Close(); err != nil </span><span class="cov0" title="0">{
+                if ctx.Err() != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("hello handshake: %w", ctx.Err())
+                }</span>
+                <span class="cov0" title="0">return fmt.Errorf("failed to close hello message writer: %w", err)</span>
+        }
 
-        <span class="cov8" title="38">r, err := s.tr.MsgReader()
-        if err != nil </span><span class="cov0" title="0">{
-                return fmt.Errorf("failed to get hello message reader: %w", err)
-        }</span>
-        <span class="cov8" title="38">defer func() </span><span class="cov8" title="38">{
-                // TODO: expose this error
+        <span class="cov9" title="42">r, err := s.tr.MsgReader()
+        if err != nil </span><span class="cov1" title="1">{
+                if ctx.Err() != nil </span><span class="cov1" title="1">{
+                        return fmt.Errorf("hello handshake: %w", ctx.Err())
+                }</span>
+                <span class="cov0" title="0">return fmt.Errorf("failed to get hello message reader: %w", err)</span>
+        }
+        <span class="cov8" title="41">defer func() </span><span class="cov8" title="41">{
                 _ = r.Close()
         }</span>()
 
-        <span class="cov8" title="38">var serverMsg Hello
+        <span class="cov8" title="41">var serverMsg Hello
         if err := xml.NewDecoder(r).Decode(&amp;serverMsg); err != nil </span><span class="cov2" title="2">{
-                return fmt.Errorf("failed to read server hello message: %w", err)
-        }</span>
+                if ctx.Err() != nil </span><span class="cov0" title="0">{
+                        return fmt.Errorf("hello handshake: %w", ctx.Err())
+                }</span>
+                <span class="cov2" title="2">return fmt.Errorf("failed to read server hello message: %w", err)</span>
+        }
 
-        <span class="cov8" title="36">if serverMsg.SessionID == 0 </span><span class="cov1" title="1">{
+        <span class="cov8" title="39">if serverMsg.SessionID == 0 </span><span class="cov1" title="1">{
                 return fmt.Errorf("server did not return a session-id")
         }</span>
 
-        <span class="cov8" title="35">if len(serverMsg.Capabilities) == 0 </span><span class="cov1" title="1">{
+        <span class="cov8" title="38">if len(serverMsg.Capabilities) == 0 </span><span class="cov1" title="1">{
                 return fmt.Errorf("server did not return any capabilities")
         }</span>
 
-        <span class="cov8" title="34">s.serverCaps = NewCapabilitySet(serverMsg.Capabilities...)
+        <span class="cov8" title="37">s.serverCaps = NewCapabilitySet(serverMsg.Capabilities...)
         s.sessionID = serverMsg.SessionID
 
         // upgrade the transport if we are on a larger version and the transport
         // supports it.
-        if s.serverCaps.Has(CapNetConf11) &amp;&amp; s.clientCaps.Has(CapNetConf11) </span><span class="cov8" title="30">{
+        if s.serverCaps.Has(CapNetConf11) &amp;&amp; s.clientCaps.Has(CapNetConf11) </span><span class="cov8" title="33">{
                 if upgrader, ok := s.tr.(interface{ Upgrade() }); ok </span><span class="cov1" title="1">{
                         upgrader.Upgrade()
                 }</span>
         }
 
-        <span class="cov8" title="34">return nil</span>
+        <span class="cov8" title="37">return nil</span>
 }
 
 // SessionID returns the current session ID exchanged in the hello messages.
@@ -1510,41 +1559,41 @@ type msgReader struct {
         once sync.Once
 }
 
-func (r *msgReader) Close() error <span class="cov9" title="41">{
+func (r *msgReader) Close() error <span class="cov8" title="41">{
         var err error
         r.once.Do(func() </span><span class="cov8" title="31">{
                 err = r.closer.Close()
                 close(r.done)
         }</span>)
-        <span class="cov9" title="41">return err</span>
+        <span class="cov8" title="41">return err</span>
 }
 
 // recvLoop is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
-func (s *Session) recvLoop() <span class="cov8" title="33">{
+func (s *Session) recvLoop() <span class="cov8" title="36">{
         // buffer used to "peel" into the message enough to read the first element
         // (i.e &lt;rpc-reply&gt; or &lt;notification&gt;)
         buf := make([]byte, 4096)
-        for </span><span class="cov10" title="64">{
-                if err := s.recvMsg(buf); err != nil </span><span class="cov8" title="33">{
+        for </span><span class="cov10" title="67">{
+                if err := s.recvMsg(buf); err != nil </span><span class="cov8" title="36">{
                         // Only log errors for unexpected failures (not graceful shutdown)
                         if !s.closing.Load() &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov1" title="1">{
                                 s.logger.Error("failed to receive message", "error", err)
                         }</span>
-                        <span class="cov8" title="33">break</span>
+                        <span class="cov8" title="36">break</span>
                 }
         }
 
         // Final cleanup when the loop exits
-        <span class="cov8" title="33">s.mu.Lock()
+        <span class="cov8" title="36">s.mu.Lock()
         for _, req := range s.reqs </span><span class="cov1" title="1">{
                 close(req.msg)
         }</span>
-        <span class="cov8" title="33">s.mu.Unlock()
+        <span class="cov8" title="36">s.mu.Unlock()
 
         _ = s.tr.Close()
 
-        if !s.closing.Load() </span><span class="cov8" title="29">{
+        if !s.closing.Load() </span><span class="cov8" title="32">{
                 s.logger.Warn("connection closed unexpectedly")
         }</span>
 }
@@ -1558,9 +1607,9 @@ func getMessageID(attrs []xml.Attr) string <span class="cov7" title="24">{
         <span class="cov2" title="2">return ""</span>
 }
 
-func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="64">{
+func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
         r, err := s.tr.MsgReader()
-        if err != nil </span><span class="cov8" title="32">{
+        if err != nil </span><span class="cov8" title="35">{
                 return err
         }</span>
         <span class="cov8" title="32">defer func() </span><span class="cov8" title="32">{
@@ -1672,7 +1721,7 @@ func (s *Session) nextMessageID() string <span class="cov8" title="29">{
 // Prepare will prepare the given rpc by assigning it a message-id if it
 // doesn't have one already.
 func (s *Session) Prepare(rpc *RPC) *RPC <span class="cov8" title="28">{
-        if rpc.MessageID == "" </span><span class="cov8" title="26">{
+        if rpc.MessageID == "" </span><span class="cov7" title="26">{
                 rpc = rpc.Clone()
                 rpc.MessageID = s.nextMessageID()
         }</span>
@@ -1739,21 +1788,21 @@ func (s *Session) Exec(ctx context.Context, op any, reply any) error <span class
         if err != nil </span><span class="cov1" title="1">{
                 return err
         }</span>
-        <span class="cov4" title="4">defer func() </span><span class="cov4" title="4">{
+        <span class="cov3" title="4">defer func() </span><span class="cov3" title="4">{
                 _ = msg.Close()
         }</span>()
 
-        <span class="cov4" title="4">raw, err := io.ReadAll(msg)
+        <span class="cov3" title="4">raw, err := io.ReadAll(msg)
         if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to read reply: %w", err)
         }</span>
 
-        <span class="cov4" title="4">var rpcReply RPCReply
+        <span class="cov3" title="4">var rpcReply RPCReply
         if err := xml.Unmarshal(raw, &amp;rpcReply); err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to parse rpc-reply: %w", err)
         }</span>
         // filter out warnings
-        <span class="cov4" title="4">rpcErrors := rpcReply.RPCErrors.Filter(SevError)
+        <span class="cov3" title="4">rpcErrors := rpcReply.RPCErrors.Filter(SevError)
         if len(rpcErrors) &gt; 0 </span><span class="cov1" title="1">{
                 return rpcErrors
         }</span>
@@ -1769,7 +1818,7 @@ func (s *Session) Exec(ctx context.Context, op any, reply any) error <span class
 
 // Close will gracefully close the sessions first by sending a `close-session`
 // operation to the remote and then closing the underlying transport
-func (s *Session) Close(ctx context.Context) error <span class="cov4" title="4">{
+func (s *Session) Close(ctx context.Context) error <span class="cov3" title="4">{
         s.closing.Store(true)
 
         // Cancel notification context to signal handlers to stop
@@ -1782,12 +1831,12 @@ func (s *Session) Close(ctx context.Context) error <span class="cov4" title="4">
         // This may fail so save the error but still close the underlying transport.
         req := NewRPC(&amp;closeSession{})
         resp, _ := s.Do(ctx, req)
-        if resp != nil </span><span class="cov4" title="4">{
+        if resp != nil </span><span class="cov3" title="4">{
                 _ = resp.Close()
         }</span>
 
         // Close the connection and ignore errors if the remote side hung up first.
-        <span class="cov4" title="4">if err := s.tr.Close(); err != nil &amp;&amp;
+        <span class="cov3" title="4">if err := s.tr.Close(); err != nil &amp;&amp;
                 !errors.Is(err, net.ErrClosed) &amp;&amp;
                 !errors.Is(err, io.EOF) &amp;&amp;
                 !errors.Is(err, syscall.EPIPE) </span><span class="cov1" title="1">{

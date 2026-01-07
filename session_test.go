@@ -82,7 +82,7 @@ func TestHello(t *testing.T) {
 			})
 			sess := &Session{tr: tr}
 
-			err := sess.handshake()
+			err := sess.handshake(context.Background())
 			if !tc.shouldError {
 				assert.NoError(t, err)
 			}
@@ -932,7 +932,6 @@ func TestNotificationHandler(t *testing.T) {
 
 	tt := testutil.NewTransport(echoHandler)
 
-	// Open session
 	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	require.NotNil(t, session.notifHandler)
@@ -1010,4 +1009,50 @@ func TestNotificationWithoutHandler(t *testing.T) {
 	// Verify we can still use the session normally
 	assert.NotNil(t, session.notifCtx)
 	assert.NotNil(t, session.notifCancel)
+}
+
+func TestWithHelloTimeout(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	session, err := NewSession(tt, WithHelloTimeout(5*time.Second))
+	require.NoError(t, err)
+	defer func() { _ = tt.Close() }()
+
+	assert.Equal(t, 5*time.Second, session.helloTimeout)
+}
+
+func TestWithHelloTimeoutDefault(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	session, err := NewSession(tt)
+	require.NoError(t, err)
+	defer func() { _ = tt.Close() }()
+
+	assert.Equal(t, DefaultHelloTimeout, session.helloTimeout)
+}
+
+func TestHelloTimeoutExpired(t *testing.T) {
+	// Handler that never responds to hello
+	tt := testutil.NewTransport(func(req string) []string {
+		return nil // No response
+	})
+
+	// Use a very short timeout
+	_, err := NewSession(tt, WithHelloTimeout(50*time.Millisecond))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "context deadline exceeded")
+
+	// Transport should be closed on error
+	assert.True(t, tt.Closed())
+}
+
+func TestHelloTimeoutDisabled(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	// Timeout of 0 means no timeout
+	session, err := NewSession(tt, WithHelloTimeout(0))
+	require.NoError(t, err)
+	defer func() { _ = tt.Close() }()
+
+	assert.Equal(t, time.Duration(0), session.helloTimeout)
 }

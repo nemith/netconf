@@ -97,7 +97,7 @@ func TestWithCapability(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	customCaps := []string{"urn:custom:cap:1.0", "urn:custom:cap:2.0"}
-	session, err := Open(tt, WithCapability(customCaps...))
+	session, err := NewSession(tt, WithCapability(customCaps...))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -114,7 +114,7 @@ func TestWithLogger(t *testing.T) {
 	var buf bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&buf, nil))
 
-	session, err := Open(tt, WithLogger(logger))
+	session, err := NewSession(tt, WithLogger(logger))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	assert.Equal(t, logger, session.logger)
@@ -124,7 +124,7 @@ func TestWithLoggerNil(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	// Nil logger should become DiscardHandler
-	session, err := Open(tt, WithLogger(nil))
+	session, err := NewSession(tt, WithLogger(nil))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	assert.NotNil(t, session.logger)
@@ -135,7 +135,7 @@ func TestWithNotifHandlerInterface(t *testing.T) {
 
 	// Test with interface-based handler
 	handler := &testNotifHandler{}
-	session, err := Open(tt, WithNotifHandler(handler))
+	session, err := NewSession(tt, WithNotifHandler(handler))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	assert.Equal(t, handler, session.notifHandler)
@@ -158,7 +158,7 @@ func TestMultipleOptions(t *testing.T) {
 	customCaps := []string{"urn:custom:cap:1.0"}
 	handler := &testNotifHandler{}
 
-	session, err := Open(tt,
+	session, err := NewSession(tt,
 		WithCapability(customCaps...),
 		WithLogger(logger),
 		WithNotifHandler(handler),
@@ -185,10 +185,10 @@ func TestNewSession(t *testing.T) {
 	assert.Equal(t, uint64(0), session.sessionID)
 }
 
-func TestOpenSuccess(t *testing.T) {
+func TestNewSessionSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	require.NotNil(t, session)
@@ -198,12 +198,12 @@ func TestOpenSuccess(t *testing.T) {
 	assert.True(t, session.ServerCaps().Has(CapNetConf10))
 }
 
-func TestOpenHandshakeFailure(t *testing.T) {
+func TestNewSessionHandshakeFailure(t *testing.T) {
 	tt := testutil.NewTransport(func(req string) []string {
 		return []string{helloBadXML}
 	})
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	assert.Error(t, err)
 	assert.Nil(t, session)
 
@@ -262,7 +262,7 @@ func TestPrepareDoesNotMutate(t *testing.T) {
 func TestDoSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -305,7 +305,7 @@ func TestDoDuplicateMessageID(t *testing.T) {
 func TestDoContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -323,7 +323,7 @@ func TestDoContextCanceled(t *testing.T) {
 func TestDoSessionClosed(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 
 	// Close the transport to simulate connection loss
@@ -349,7 +349,7 @@ func TestExecSuccess(t *testing.T) {
 		return []string{testutil.Reply(msgID, `<data><result>success</result></data>`)}
 	})
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -380,7 +380,7 @@ func TestExecWithRPCError(t *testing.T) {
 		</rpc-error>`)}
 	})
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -408,7 +408,7 @@ func TestExecWithRPCWarning(t *testing.T) {
 		<ok/>`)}
 	})
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -419,7 +419,7 @@ func TestExecWithRPCWarning(t *testing.T) {
 func TestExecNilReply(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -431,7 +431,7 @@ func TestExecNilReply(t *testing.T) {
 func TestExecContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -446,7 +446,7 @@ func TestExecContextCanceled(t *testing.T) {
 func TestRecvMsgMissingMessageID(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	_, err := Open(tt)
+	_, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -460,7 +460,7 @@ func TestRecvMsgMissingMessageID(t *testing.T) {
 func TestRecvMsgUnexpectedReply(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	_, err := Open(tt)
+	_, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -474,7 +474,7 @@ func TestRecvMsgUnexpectedReply(t *testing.T) {
 func TestRecvMsgUnknownMessageType(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	_, err := Open(tt)
+	_, err := NewSession(tt)
 	require.NoError(t, err)
 
 	// Push unknown message type
@@ -490,7 +490,7 @@ func TestRecvMsgUnknownMessageType(t *testing.T) {
 func TestCloseSuccess(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 
 	err = session.Close(context.Background())
@@ -507,7 +507,7 @@ func TestCloseWithPendingRequests(t *testing.T) {
 		return nil // No response for RPCs
 	})
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 
 	// Start a request in background
@@ -537,7 +537,7 @@ func TestCloseWithPendingRequests(t *testing.T) {
 func TestCloseNotifContextCanceled(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 
 	notifCtx := session.notifCtx
@@ -557,7 +557,7 @@ func TestCloseNotifContextCanceled(t *testing.T) {
 func TestConcurrentDo(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 
 	const numRequests = 10
@@ -616,7 +616,7 @@ func TestConcurrentDoAndNotifications(t *testing.T) {
 		return []string{testutil.OKReply(msgID)}
 	})
 
-	session, err := Open(tt, WithNotifHandlerFunc(handler))
+	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -645,7 +645,7 @@ func TestConcurrentDoAndNotifications(t *testing.T) {
 func TestSessionID(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -655,7 +655,7 @@ func TestSessionID(t *testing.T) {
 func TestClientCaps(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -667,7 +667,7 @@ func TestClientCaps(t *testing.T) {
 func TestServerCaps(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -790,7 +790,7 @@ func TestNotificationMessageNotClosed(t *testing.T) {
 
 	tt := testutil.NewTransport(echoHandler)
 
-	_, err := Open(tt, WithNotifHandlerFunc(handler))
+	_, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -822,7 +822,7 @@ func TestNotificationConcurrent(t *testing.T) {
 
 	tt := testutil.NewTransport(echoHandler)
 
-	_, err := Open(tt, WithNotifHandlerFunc(handler))
+	_, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -862,7 +862,7 @@ func TestHandshakeUpgrade(t *testing.T) {
 	ut := &upgradableTransport{Transport: tt}
 
 	// Client also supports 1.1 by default
-	session, err := Open(ut)
+	session, err := NewSession(ut)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	assert.NotNil(t, session)
@@ -882,7 +882,7 @@ func TestHandshakeNoUpgradeWhenServerLacks11(t *testing.T) {
 	})
 	ut := &upgradableTransport{Transport: tt}
 
-	session, err := Open(ut)
+	session, err := NewSession(ut)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	assert.NotNil(t, session)
@@ -907,7 +907,7 @@ func TestCloseTransportError(t *testing.T) {
 	customErr := errors.New("custom transport error")
 	et := &errorTransport{Transport: tt, closeErr: customErr}
 
-	session, err := Open(et)
+	session, err := NewSession(et)
 	require.NoError(t, err)
 
 	err = session.Close(context.Background())
@@ -933,7 +933,7 @@ func TestNotificationHandler(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	// Open session
-	session, err := Open(tt, WithNotifHandlerFunc(handler))
+	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	require.NotNil(t, session.notifHandler)
 
@@ -960,7 +960,7 @@ func TestNotificationHandlerContextCanceled(t *testing.T) {
 
 	tt := testutil.NewTransport(echoHandler)
 
-	session, err := Open(tt, WithNotifHandlerFunc(handler))
+	session, err := NewSession(tt, WithNotifHandlerFunc(handler))
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 
@@ -1002,7 +1002,7 @@ func TestNotificationWithoutHandler(t *testing.T) {
 	tt := testutil.NewTransport(echoHandler)
 
 	// Create session WITHOUT notification handler
-	session, err := Open(tt)
+	session, err := NewSession(tt)
 	require.NoError(t, err)
 	defer func() { _ = tt.Close() }()
 	require.Nil(t, session.notifHandler)

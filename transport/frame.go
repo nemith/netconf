@@ -333,18 +333,15 @@ func (w *chunkedWriter) Write(p []byte) (int, error) {
 		return 0, ErrInvalidIO
 	}
 
+	// maxChunkSize is the maximum chunk size for RFC 6242 chunked framing.
+	// RFC 6242 allows up to MaxUint32 (4294967295), but on 32-bit systems
+	// slice lengths are limited to MaxInt32. We use the minimum of both
+	// to ensure compatibility across all architectures.
+	const maxChunkSize = min(math.MaxUint32, math.MaxInt)
+
 	totalWritten := 0
 	for len(p) > 0 {
-		// Cap chunk size at MaxInt32 (~2GB) to avoid overflow issues on all
-		// architectures.
-		//
-		// XXX: Should we default to smaller chunk sizes.  Default
-		// buffer in a bufio writer is 4k and seems resonable?  Check what other
-		// chunked implementations do?
-		chunkSize := len(p)
-		if chunkSize > math.MaxInt32 {
-			chunkSize = math.MaxInt32
-		}
+		chunkSize := min(len(p), maxChunkSize)
 
 		// Write chunk header
 		if _, err := fmt.Fprintf(w.w, "\n#%d\n", chunkSize); err != nil {

@@ -470,3 +470,34 @@ func (rpc CancelCommit) Exec(ctx context.Context, session *netconf.Session) erro
 	}
 	return nil
 }
+
+// DiscardChanges represents the `<discard-changes>` operation defined in
+// [RFC6241 8.3.4.2] for reverting the candidate configuration to the current
+// running configuration.
+//
+// This operation discards any uncommitted changes by resetting the candidate
+// configuration with the content of the running configuration.
+//
+// Device must support the `:candidate` capability.
+//
+// [RFC6241 8.3.4.2]: https://www.rfc-editor.org/rfc/rfc6241.html#section-8.3.4.2
+type DiscardChanges struct{}
+
+func (rpc DiscardChanges) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	req := struct {
+		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 discard-changes"`
+	}{}
+	return e.Encode(&req)
+}
+
+func (rpc DiscardChanges) Exec(ctx context.Context, session *netconf.Session) error {
+	var resp OkReply
+	if err := session.Exec(ctx, rpc, &resp); err != nil {
+		return err
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("discard-changes: operation failed, <ok> not received")
+	}
+	return nil
+}

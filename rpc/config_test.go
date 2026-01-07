@@ -597,3 +597,52 @@ func TestCancelCommit_Exec(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscardChanges_MarshalXML(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       DiscardChanges
+		expected string
+	}{
+		{
+			name:     "basic",
+			op:       DiscardChanges{},
+			expected: `<discard-changes xmlns="urn:ietf:params:xml:ns:netconf:base:1.0"></discard-changes>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := xml.Marshal(tt.op)
+			if err != nil {
+				t.Fatalf("failed to marshal: %v", err)
+			}
+			assert.Equal(t, tt.expected, string(got))
+		})
+	}
+}
+
+func TestDiscardChanges_Exec(t *testing.T) {
+	tests := []struct {
+		name        string
+		op          DiscardChanges
+		serverReply string
+		shouldError bool
+	}{
+		{
+			name:        "okReply",
+			op:          DiscardChanges{},
+			serverReply: `<ok/>`,
+			shouldError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		session, _ := mockSession(t, tc.serverReply)
+		err := tc.op.Exec(t.Context(), session)
+		if tc.shouldError {
+			assert.Error(t, err)
+		} else {
+			assert.NoError(t, err)
+		}
+	}
+}

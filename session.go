@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 
 	"nemith.io/netconf/transport"
 )
@@ -23,7 +24,10 @@ const (
 	NotificationNamespace = "urn:ietf:params:xml:ns:netconf:notification:1.0"
 )
 
-var ErrClosed = errors.New("closed connection")
+var (
+	ErrClosed           = errors.New("closed connection")
+	ErrHandshakeTimeout = errors.New("handshake timeout")
+)
 
 // NotificationHandler is called when a notification message is received from
 // the server. The handler is called asynchronously in its own goroutine.
@@ -42,10 +46,14 @@ type NotifHandler interface {
 	HandleNotification(ctx context.Context, msg *Message)
 }
 
+// DefaultHelloTimeout is the default timeout for the hello handshake.
+const DefaultHelloTimeout = 30 * time.Second
+
 type sessionConfig struct {
 	clientCaps   []string
 	logger       *slog.Logger
 	notifHandler NotifHandler
+	helloTimeout time.Duration
 }
 
 type SessionOption interface {
@@ -102,12 +110,26 @@ func WithNotifHandlerFunc(handlerFunc func(context.Context, *Message)) SessionOp
 	return notifHandlerOpt{handler: NotifHandlerFunc(handlerFunc)}
 }
 
+type helloTimeoutOpt time.Duration
+
+func (o helloTimeoutOpt) apply(cfg *sessionConfig) {
+	cfg.helloTimeout = time.Duration(o)
+}
+
+// WithHelloTimeout sets the timeout for the hello handshake exchange.
+// If not set, DefaultHelloTimeout (30 seconds) is used.
+// Set to 0 to disable the timeout (not recommended).
+func WithHelloTimeout(d time.Duration) SessionOption {
+	return helloTimeoutOpt(d)
+}
+
 // Session is represents a netconf session to a one given device.
 type Session struct {
-	tr        transport.Transport
-	sessionID uint64
-	seq       atomic.Uint64
-	closing   atomic.Bool
+	tr           transport.Transport
+	sessionID    uint64
+	seq          atomic.Uint64
+	closing      atomic.Bool
+	helloTimeout time.Duration
 
 	clientCaps CapabilitySet
 	serverCaps CapabilitySet
@@ -124,8 +146,9 @@ type Session struct {
 
 func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	cfg := sessionConfig{
-		clientCaps: DefaultCapabilities,
-		logger:     slog.Default(),
+		clientCaps:   DefaultCapabilities,
+		logger:       slog.Default(),
+		helloTimeout: DefaultHelloTimeout,
 	}
 
 	for _, opt := range opts {
@@ -142,6 +165,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 		notifCtx:     notifCtx,
 		notifCancel:  notifCancel,
 		logger:       cfg.logger,
+		helloTimeout: cfg.helloTimeout,
 	}
 	return s
 }
@@ -151,8 +175,14 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 func NewSession(transport transport.Transport, opts ...SessionOption) (*Session, error) {
 	s := newSession(transport, opts...)
 
-	// this needs a timeout of some sort.
-	if err := s.handshake(); err != nil {
+	ctx := context.Background()
+	if s.helloTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeoutCause(ctx, s.helloTimeout, ErrHandshakeTimeout)
+		defer cancel()
+	}
+
+	if err := s.handshake(ctx); err != nil {
 		s.tr.Close() // nolint:errcheck // TODO: catch and log err
 		return nil, err
 	}
@@ -162,38 +192,57 @@ func NewSession(transport transport.Transport, opts ...SessionOption) (*Session,
 }
 
 // handshake exchanges handshake messages and reports if there are any errors.
-func (s *Session) handshake() error {
+func (s *Session) handshake(ctx context.Context) error {
+	// If context times out or is cancelled, close the transport to unblock
+	// any pending read/write operations.
+	stop := context.AfterFunc(ctx, func() {
+		_ = s.tr.Close()
+	})
+	defer stop()
+
 	clientMsg := Hello{
 		Capabilities: slices.Collect(s.clientCaps.All()),
 	}
 
 	w, err := s.tr.MsgWriter()
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("hello handshake: %w", ctx.Err())
+		}
 		return fmt.Errorf("failed to get hello message writer: %w", err)
 	}
-	defer func() {
-		// TODO: expose this error
-		_ = w.Close()
-	}()
 
 	if err := xml.NewEncoder(w).Encode(&clientMsg); err != nil {
+		_ = w.Close()
+		if ctx.Err() != nil {
+			return fmt.Errorf("hello handshake: %w", ctx.Err())
+		}
 		return fmt.Errorf("failed to write hello message: %w", err)
 	}
+
 	if err := w.Close(); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("hello handshake: %w", ctx.Err())
+		}
 		return fmt.Errorf("failed to close hello message writer: %w", err)
 	}
 
 	r, err := s.tr.MsgReader()
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("hello handshake: %w", ctx.Err())
+		}
 		return fmt.Errorf("failed to get hello message reader: %w", err)
 	}
 	defer func() {
-		// TODO: expose this error
 		_ = r.Close()
 	}()
 
 	var serverMsg Hello
 	if err := xml.NewDecoder(r).Decode(&serverMsg); err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("hello handshake: %w", ctx.Err())
+		}
 		return fmt.Errorf("failed to read server hello message: %w", err)
 	}
 

@@ -73,7 +73,7 @@
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
-				<option value="file9">nemith.io/netconf/transport/frame.go (64.2%)</option>
+				<option value="file9">nemith.io/netconf/transport/frame.go (64.5%)</option>
 				
 				<option value="file10">nemith.io/netconf/transport/ssh/ssh.go (82.2%)</option>
 				
@@ -2389,21 +2389,18 @@ func (w *chunkedWriter) Write(p []byte) (int, error) <span class="cov1" title="2
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov1" title="2">totalWritten := 0
+        // maxChunkSize is the maximum chunk size for RFC 6242 chunked framing.
+        // RFC 6242 allows up to MaxUint32 (4294967295), but on 32-bit systems
+        // slice lengths are limited to MaxInt32. We use the minimum of both
+        // to ensure compatibility across all architectures.
+        <span class="cov1" title="2">const maxChunkSize = min(math.MaxUint32, math.MaxInt)
+
+        totalWritten := 0
         for len(p) &gt; 0 </span><span class="cov1" title="2">{
-                // Cap chunk size at MaxInt32 (~2GB) to avoid overflow issues on all
-                // architectures.
-                //
-                // XXX: Should we default to smaller chunk sizes.  Default
-                // buffer in a bufio writer is 4k and seems resonable?  Check what other
-                // chunked implementations do?
-                chunkSize := len(p)
-                if chunkSize &gt; math.MaxInt32 </span><span class="cov0" title="0">{
-                        chunkSize = math.MaxInt32
-                }</span>
+                chunkSize := min(len(p), maxChunkSize)
 
                 // Write chunk header
-                <span class="cov1" title="2">if _, err := fmt.Fprintf(w.w, "\n#%d\n", chunkSize); err != nil </span><span class="cov0" title="0">{
+                if _, err := fmt.Fprintf(w.w, "\n#%d\n", chunkSize); err != nil </span><span class="cov0" title="0">{
                         return totalWritten, err
                 }</span>
 

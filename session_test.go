@@ -289,7 +289,7 @@ func TestDoDuplicateMessageID(t *testing.T) {
 
 	// Create a pending request manually
 	session.mu.Lock()
-	session.reqs["duplicate-id"] = &pendingReq{
+	session.reqs["duplicate-id"] = &pendingResp{
 		msg: make(chan *Message, 1),
 		ctx: ctx,
 	}
@@ -1054,4 +1054,168 @@ func TestHelloTimeoutDisabled(t *testing.T) {
 	defer func() { _ = tt.Close() }()
 
 	be.Equal(t, time.Duration(0), session.helloTimeout)
+}
+
+func TestConcurrentDoAndClose(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	session, err := NewSession(tt)
+	be.NilErr(t, err)
+
+	const numRequests = 5
+	var wg sync.WaitGroup
+	wg.Add(numRequests)
+
+	// Start concurrent Do() calls
+	for range numRequests {
+		go func() {
+			defer wg.Done()
+			rpc := NewRPC("test-op")
+			msg, _ := session.Do(context.Background(), rpc)
+			if msg != nil {
+				_ = msg.Close()
+			}
+		}()
+	}
+
+	// Close while Do() calls are in flight
+	time.Sleep(10 * time.Millisecond)
+	err = session.Close(context.Background())
+	be.NilErr(t, err)
+
+	// Should not panic or deadlock
+	wg.Wait()
+}
+
+func TestQueueDrainsBeforeClose(t *testing.T) {
+	// Track how many messages were processed
+	var processed atomic.Int32
+	tt := testutil.NewTransport(func(req string) []string {
+		if strings.Contains(req, "<hello") {
+			return []string{helloGood}
+		}
+		if !strings.Contains(req, "close-session") {
+			processed.Add(1)
+		}
+		msgID := testutil.ExtractMessageID(req)
+		return []string{testutil.OKReply(msgID)}
+	})
+
+	session, err := NewSession(tt)
+	be.NilErr(t, err)
+
+	const numRequests = 10
+	var wg sync.WaitGroup
+	wg.Add(numRequests)
+
+	// Queue up multiple requests
+	for range numRequests {
+		go func() {
+			defer wg.Done()
+			rpc := NewRPC("test-op")
+			msg, err := session.Do(context.Background(), rpc)
+			if err == nil && msg != nil {
+				_ = msg.Close()
+			}
+		}()
+	}
+
+	// Wait for all to queue/complete
+	wg.Wait()
+
+	// Close and verify all messages were processed
+	err = session.Close(context.Background())
+	be.NilErr(t, err)
+
+	// All requests should have been processed
+	be.Equal(t, int32(numRequests), processed.Load())
+}
+
+func TestDoWhileClosing(t *testing.T) {
+	// Handler that delays to ensure we catch the closing state
+	tt := testutil.NewTransport(func(req string) []string {
+		if strings.Contains(req, "<hello") {
+			return []string{helloGood}
+		}
+		time.Sleep(50 * time.Millisecond)
+		msgID := testutil.ExtractMessageID(req)
+		return []string{testutil.OKReply(msgID)}
+	})
+
+	session, err := NewSession(tt)
+	be.NilErr(t, err)
+
+	// Start a request
+	go func() {
+		rpc := NewRPC("test-op")
+		msg, _ := session.Do(context.Background(), rpc)
+		if msg != nil {
+			_ = msg.Close()
+		}
+	}()
+
+	// Give it time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Start closing
+	closeDone := make(chan error, 1)
+	go func() {
+		closeDone <- session.Close(context.Background())
+	}()
+
+	// Try to send another request while closing
+	rpc := NewRPC("test-op-2")
+	msg, err := session.Do(context.Background(), rpc)
+	be.NilErr(t, err)
+
+	// Either succeeds if queued before close, or fails with ErrClosed
+	if msg != nil {
+		_ = msg.Close()
+	}
+	// Don't assert on error - it's a race whether we queue before close
+
+	// Close should complete without hanging
+	select {
+	case err := <-closeDone:
+		be.NilErr(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close() hung")
+	}
+}
+
+func TestQueueSendContextCanceled(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	session, err := NewSession(tt)
+	be.NilErr(t, err)
+	defer func() { _ = session.Close(context.Background()) }()
+
+	// Create a context that's already cancelled
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// Should fail immediately with context.Canceled
+	rpc := NewRPC("test-op")
+	msg, err := session.Do(ctx, rpc)
+	be.Nonzero(t, err)
+	be.Zero(t, msg)
+	be.Equal(t, context.Canceled, err)
+}
+
+func TestDoAfterClose(t *testing.T) {
+	tt := testutil.NewTransport(echoHandler)
+
+	session, err := NewSession(tt)
+	be.NilErr(t, err)
+
+	// Close the session
+	err = session.Close(context.Background())
+	be.NilErr(t, err)
+
+	// Try to send a request after close
+	rpc := NewRPC("test-op")
+	msg, err := session.Do(context.Background(), rpc)
+	be.Nonzero(t, err)
+	be.Zero(t, msg)
+	be.Equal(t, ErrClosed, err)
 }

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"nemith.io/netconf/transport"
 )
 
 // RequestHandler is called for each message written by the client.
@@ -20,12 +22,14 @@ type RequestHandler func(req string) []string
 // the handler is called and its responses are queued for reading.
 // Use Push() to queue unsolicited messages like notifications.
 type Transport struct {
-	mu       sync.Mutex
-	handler  RequestHandler
-	msgs     []string // pending messages to read
-	msgReady chan struct{}
-	outputs  []string
-	closed   bool
+	mu           sync.Mutex
+	handler      RequestHandler
+	msgs         []string // pending messages to read
+	msgReady     chan struct{}
+	outputs      []string
+	closed       bool
+	activeWriter bool // tracks if a writer is currently active
+	activeReader bool // tracks if a reader is currently active
 }
 
 // NewTransport creates a new test Transport with a handler function.
@@ -44,9 +48,16 @@ func (t *Transport) MsgReader() (io.ReadCloser, error) {
 			t.mu.Unlock()
 			return nil, io.EOF
 		}
+
+		if t.activeReader {
+			t.mu.Unlock()
+			return nil, transport.ErrStreamBusy
+		}
+
 		if len(t.msgs) > 0 {
 			msg := t.msgs[0]
 			t.msgs = t.msgs[1:]
+			t.activeReader = true
 			t.mu.Unlock()
 			return &testReader{tt: t, r: strings.NewReader(msg)}, nil
 		}
@@ -64,6 +75,12 @@ func (t *Transport) MsgWriter() (io.WriteCloser, error) {
 	if t.closed {
 		return nil, io.EOF
 	}
+
+	if t.activeWriter {
+		return nil, transport.ErrStreamBusy
+	}
+
+	t.activeWriter = true
 	return &testWriter{tt: t, buf: &bytes.Buffer{}}, nil
 }
 
@@ -134,6 +151,9 @@ func (tr *testReader) Read(p []byte) (int, error) {
 }
 
 func (tr *testReader) Close() error {
+	tr.tt.mu.Lock()
+	tr.tt.activeReader = false
+	tr.tt.mu.Unlock()
 	return nil
 }
 
@@ -160,6 +180,7 @@ func (w *testWriter) Close() error {
 		return nil
 	}
 	w.closed = true
+	w.tt.activeWriter = false // Release the writer lock
 	msg := w.buf.String()
 	w.tt.outputs = append(w.tt.outputs, msg)
 	handler := w.tt.handler

@@ -183,7 +183,9 @@ func NewSession(transport transport.Transport, opts ...SessionOption) (*Session,
 	}
 
 	if err := s.handshake(ctx); err != nil {
-		s.tr.Close() // nolint:errcheck // TODO: catch and log err
+		if closeErr := s.tr.Close(); closeErr != nil {
+			s.logger.Warn("failed to close transport after handshake error", "error", closeErr)
+		}
 		return nil, err
 	}
 
@@ -367,8 +369,9 @@ func (s *Session) recvMsg(buf []byte) error {
 		return err
 	}
 	defer func() {
-		// TODO: expose this error
-		_ = r.Close()
+		if err := r.Close(); err != nil {
+			s.logger.Warn("failed to close message reader", "error", err)
+		}
 	}()
 
 	// 3. Peek/Read the start of the message

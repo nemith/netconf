@@ -4,30 +4,36 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"nemith.io/netconf"
-	"nemith.io/netconf/transport"
+	"nemith.io/netconf/testutil"
 )
 
-func mockSession(t *testing.T, rpcReplyInnerXML string) (*netconf.Session, *transport.TestTransport) {
-	tr := &transport.TestTransport{}
-	tr.AddResponse(`
-		<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
-			<capabilities>
-				<capability>urn:ietf:params:netconf:base:1.0</capability>
-			</capabilities>
-			<session-id>42</session-id>
-		</hello>`)
+func mockSession(t *testing.T, rpcReplyInnerXML string) (*netconf.Session, *testutil.Transport) {
+	tr := testutil.NewTransport(func(req string) []string {
+		// Respond to hello
+		if strings.Contains(req, "<hello") {
+			return []string{`
+				<hello xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+					<capabilities>
+						<capability>urn:ietf:params:netconf:base:1.0</capability>
+					</capabilities>
+					<session-id>42</session-id>
+				</hello>`}
+		}
+		// Respond to RPC
+		msgID := testutil.ExtractMessageID(req)
+		return []string{fmt.Sprintf(`
+			<rpc-reply message-id="%s" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
+				%s
+			</rpc-reply>`, msgID, rpcReplyInnerXML)}
+	})
 
-	tr.AddResponse(fmt.Sprintf(`
-		<rpc-reply message-id="1" xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">
-			%s
-		</rpc-reply>`, rpcReplyInnerXML))
-
-	// 3. Create Session
+	// Create Session
 	// This will immediately consume the first message (Server Hello)
 	// and write the Client Hello to tr.outputs[0].
 	s, err := netconf.Open(tr)

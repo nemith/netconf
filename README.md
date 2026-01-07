@@ -2,24 +2,148 @@
 
 [![Go Reference](https://pkg.go.dev/badge/nemith.io/netconf.svg)](https://pkg.go.dev/nemith.io/netconf)
 [![Report Card](https://goreportcard.com/badge/nemith.io/netconf)](https://goreportcard.com/report/nemith.io/netconf)
-[![stability-unstable](https://img.shields.io/badge/stability-unstable-yellow.svg)](https://github.com/emersion/stability-badges#unstable)
-[![Validate](https://nemith.io/netconf/actions/workflows/validate.yaml/badge.svg?branch=main&event=push)](https://nemith.io/netconf/actions/workflows/validate.yaml)
-[![coverage](https://raw.githubusercontent.com/nemith/netconf/coverage/badge.svg)](http://htmlpreview.github.io/?https://nemith.io/netconf/blob/coverage/coverage.html)
+[![Validate](https://github.com/nemith/netconf/actions/workflows/validate.yaml/badge.svg?branch=main&event=push)](https://github.com/nemith/netconf/actions/workflows/validate.yaml)
+[![coverage](https://raw.githubusercontent.com/nemith/netconf/coverage/badge.svg)](http://htmlpreview.github.io/?https://github.com/nemith/netconf/blob/coverage/coverage.html)
 
-This library is used to create client applications for connecting to network devices via NETCONF.
+A performant and complete implementation of the NETCONF network device management protocol in Go.
 
-Like Go itself, only the latest two Go versions are tested and supported (Go 1.24 or Go 1.26).
+Like Go itself, only the latest two Go versions are tested and supported (Go 1.23 or Go 1.24).
 
-NOTICE: The API is pretty stable but not finalized yet. So changes may happen before a 1.0 release. Check for API changes when you upgrade.
+NOTICE: This library has a pretty stable API however pre-1.0.0 means that there may be some minor renames and changes to the API on the road to stabilization. Release notes should include the changes required. Once 1.0.0 gets released the API will only change in major versions.
+
+## Installation
+
+```bash
+go get nemith.io/netconf
+```
+
+## Quick Start
+
+### SSH Connection with get-config
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+	"nemith.io/netconf"
+	"nemith.io/netconf/rpc"
+	ncssh "nemith.io/netconf/transport/ssh"
+)
+
+func main() {
+	// Configure SSH client
+	config := &ssh.ClientConfig{
+		User: "admin",
+		Auth: []ssh.AuthMethod{
+			ssh.Password("secret"),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // Don't use in production
+	}
+
+	// Connect with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	transport, err := ncssh.Dial(ctx, "tcp", "router.example.com:830", config)
+	if err != nil {
+		log.Fatalf("failed to connect: %v", err)
+	}
+	defer transport.Close()
+
+	// Create NETCONF session
+	session, err := netconf.NewSession(transport)
+	if err != nil {
+		log.Fatalf("failed to create session: %v", err)
+	}
+	defer session.Close(context.Background())
+
+	// Get the running configuration
+	cfg, err := rpc.GetConfig{Source: rpc.Running}.Exec(ctx, session)
+	if err != nil {
+		log.Fatalf("get-config failed: %v", err)
+	}
+
+	fmt.Printf("Running config:\n%s\n", cfg)
+}
+```
+
+### NETCONF Notifications 
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"golang.org/x/crypto/ssh"
+	"nemith.io/netconf"
+	"nemith.io/netconf/rpc"
+	ncssh "nemith.io/netconf/transport/ssh"
+)
+
+func main() {
+	config := &ssh.ClientConfig{
+		User:            "admin",
+		Auth:            []ssh.AuthMethod{ssh.Password("secret")},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	ctx := context.Background()
+
+	transport, err := ncssh.Dial(ctx, "tcp", "router.example.com:830", config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer transport.Close()
+
+	// Create session with notification handler
+	session, err := netconf.NewSession(transport,
+		netconf.WithNotifHandlerFunc(func(ctx context.Context, msg *netconf.Message) {
+			defer msg.Close()
+
+			var notif netconf.Notification
+			if err := msg.Decode(&notif); err != nil {
+				log.Printf("failed to decode notification: %v", err)
+				return
+			}
+
+			fmt.Printf("[%s] Notification received\n", notif.EventTime.Format(time.RFC3339))
+		}),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer session.Close(ctx)
+
+	// Subscribe to notifications
+	if err := rpc.CreateSubscription{}.Exec(ctx, session); err != nil {
+		log.Fatalf("failed to subscribe: %v", err)
+	}
+
+	fmt.Println("Subscribed to notifications. Press Ctrl+C to exit.")
+
+	// Keep the program running to receive notifications
+	select {}
+}
+```
 
 ## RFC Support
 
 | RFC                                                                               | Support                      |
 | --------------------------------------------------------------------------------- | ---------------------------- |
-| [RFC6241 Network Configuration Protocol (NETCONF)][RFC6241]                       | :construction: inprogress    |
+| [RFC6241 Network Configuration Protocol (NETCONF)][RFC6241]                       | :white_check_mark: supported |
 | [RFC6242 Using the NETCONF Protocol over Secure Shell (SSH)][RFC6242]             | :white_check_mark: supported |
-| [RFC7589 Using the NETCONF Protocol over Transport Layer Security (TLS)][RFC7589] | :white_check_mark: beta      |
-| [RFC5277 NETCONF Event Notifications][RFC5277]                                    | :bulb: planned               |
+| [RFC7589 Using the NETCONF Protocol over Transport Layer Security (TLS)][RFC7589] | :white_check_mark: supported |
+| [RFC5277 NETCONF Event Notifications][RFC5277]                                    | :white_check_mark: supported |
 | [RFC5717 Partial Lock Remote Procedure Call (RPC) for NETCONF][RFC5717]           | :bulb: planned               |
 | [RFC8071 NETCONF Call Home and RESTCONF Call Home][RFC8071]                       | :bulb: planned               |
 | [RFC6243 With-defaults Capability for NETCONF][RFC6243]                           | :bulb: planned               |

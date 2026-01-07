@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (87.9%)</option>
+				<option value="file7">nemith.io/netconf/session.go (87.4%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
@@ -1535,10 +1535,10 @@ func (s *Session) ServerCaps() *CapabilitySet <span class="cov2" title="2">{
 
 // startElement will walk though a xml.Decode until it finds a start element
 // and returns it.
-func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="36">{
-        for </span><span class="cov8" title="40">{
+func startElement(d *xml.Decoder) (*xml.StartElement, error) <span class="cov8" title="34">{
+        for </span><span class="cov8" title="38">{
                 tok, err := d.Token()
-                if err != nil </span><span class="cov3" title="3">{
+                if err != nil </span><span class="cov1" title="1">{
                         return nil, err
                 }</span>
 
@@ -1611,26 +1611,26 @@ func getMessageID(attrs []xml.Attr) string <span class="cov7" title="24">{
 
 func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
         r, err := s.tr.MsgReader()
-        if err != nil </span><span class="cov8" title="33">{
+        if err != nil </span><span class="cov8" title="35">{
                 return err
         }</span>
-        <span class="cov8" title="34">defer func() </span><span class="cov8" title="34">{
+        <span class="cov8" title="32">defer func() </span><span class="cov8" title="32">{
                 if err := r.Close(); err != nil </span><span class="cov0" title="0">{
                         s.logger.Warn("failed to close message reader", "error", err)
                 }</span>
         }()
 
         // 3. Peek/Read the start of the message
-        <span class="cov8" title="34">n, err := r.Read(buf)
+        <span class="cov8" title="32">n, err := r.Read(buf)
         if err != nil &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov0" title="0">{
                 return err
         }</span>
 
-        <span class="cov8" title="34">chunk := buf[:n]
+        <span class="cov8" title="32">chunk := buf[:n]
         decoder := xml.NewDecoder(bytes.NewReader(chunk))
 
         startElem, err := startElement(decoder)
-        if err != nil </span><span class="cov2" title="2">{
+        if err != nil </span><span class="cov0" title="0">{
                 return fmt.Errorf("failed to parse message start: %w", err)
         }</span>
 

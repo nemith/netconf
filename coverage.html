@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (91.5%)</option>
+				<option value="file7">nemith.io/netconf/session.go (91.4%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
@@ -1353,13 +1353,13 @@ type Session struct {
         tr        transport.Transport
         sessionID uint64
         seq       atomic.Uint64
+        closing   atomic.Bool
 
         clientCaps CapabilitySet
         serverCaps CapabilitySet
 
-        mu      sync.Mutex
-        reqs    map[string]*pendingReq
-        closing bool
+        mu   sync.Mutex
+        reqs map[string]*pendingReq
 
         notifHandler NotifHandler
         notifCtx     context.Context
@@ -1368,7 +1368,7 @@ type Session struct {
         logger *slog.Logger
 }
 
-func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov9" title="40">{
+func newSession(transport transport.Transport, opts ...SessionOption) *Session <span class="cov8" title="40">{
         cfg := sessionConfig{
                 clientCaps: DefaultCapabilities,
                 logger:     slog.Default(),
@@ -1378,7 +1378,7 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session <
                 opt.apply(&amp;cfg)
         }</span>
 
-        <span class="cov9" title="40">notifCtx, notifCancel := context.WithCancel(context.Background())
+        <span class="cov8" title="40">notifCtx, notifCancel := context.WithCancel(context.Background())
 
         s := &amp;Session{
                 tr:           transport,
@@ -1521,30 +1521,30 @@ func (r *msgReader) Close() error <span class="cov9" title="41">{
 
 // recvLoop is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
-func (s *Session) recvLoop() <span class="cov8" title="32">{
+func (s *Session) recvLoop() <span class="cov8" title="33">{
         // buffer used to "peel" into the message enough to read the first element
         // (i.e &lt;rpc-reply&gt; or &lt;notification&gt;)
         buf := make([]byte, 4096)
-        for </span><span class="cov10" title="63">{
-                if err := s.recvMsg(buf); err != nil </span><span class="cov8" title="32">{
-                        // TODO: check for regular EOF and exit silently
-                        s.logger.Error("failed to receive message", "error", err)
-                        break</span>
+        for </span><span class="cov10" title="64">{
+                if err := s.recvMsg(buf); err != nil </span><span class="cov8" title="33">{
+                        // Only log errors for unexpected failures (not graceful shutdown)
+                        if !s.closing.Load() &amp;&amp; !errors.Is(err, io.EOF) </span><span class="cov1" title="1">{
+                                s.logger.Error("failed to receive message", "error", err)
+                        }</span>
+                        <span class="cov8" title="33">break</span>
                 }
         }
 
         // Final cleanup when the loop exits
-        <span class="cov8" title="31">s.mu.Lock()
+        <span class="cov8" title="33">s.mu.Lock()
         for _, req := range s.reqs </span><span class="cov1" title="1">{
                 close(req.msg)
         }</span>
-        <span class="cov8" title="31">closing := s.closing
-        s.mu.Unlock()
+        <span class="cov8" title="33">s.mu.Unlock()
 
-        // TODO: expose this error
         _ = s.tr.Close()
 
-        if !closing </span><span class="cov8" title="28">{
+        if !s.closing.Load() </span><span class="cov8" title="29">{
                 s.logger.Warn("connection closed unexpectedly")
         }</span>
 }
@@ -1558,9 +1558,9 @@ func getMessageID(attrs []xml.Attr) string <span class="cov7" title="24">{
         <span class="cov2" title="2">return ""</span>
 }
 
-func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="63">{
+func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="64">{
         r, err := s.tr.MsgReader()
-        if err != nil </span><span class="cov8" title="31">{
+        if err != nil </span><span class="cov8" title="32">{
                 return err
         }</span>
         <span class="cov8" title="32">defer func() </span><span class="cov8" title="32">{
@@ -1770,9 +1770,7 @@ func (s *Session) Exec(ctx context.Context, op any, reply any) error <span class
 // Close will gracefully close the sessions first by sending a `close-session`
 // operation to the remote and then closing the underlying transport
 func (s *Session) Close(ctx context.Context) error <span class="cov4" title="4">{
-        s.mu.Lock()
-        s.closing = true
-        s.mu.Unlock()
+        s.closing.Store(true)
 
         // Cancel notification context to signal handlers to stop
         s.notifCancel()

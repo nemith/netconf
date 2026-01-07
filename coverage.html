@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (88.3%)</option>
+				<option value="file7">nemith.io/netconf/session.go (87.4%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (0.0%)</option>
 				
@@ -1429,9 +1429,11 @@ func NewSession(transport transport.Transport, opts ...SessionOption) (*Session,
         }</span>
 
         <span class="cov8" title="38">if err := s.handshake(ctx); err != nil </span><span class="cov2" title="2">{
-                s.tr.Close() // nolint:errcheck // TODO: catch and log err
-                return nil, err
-        }</span>
+                if closeErr := s.tr.Close(); closeErr != nil </span><span class="cov0" title="0">{
+                        s.logger.Warn("failed to close transport after handshake error", "error", closeErr)
+                }</span>
+                <span class="cov2" title="2">return nil, err</span>
+        }
 
         <span class="cov8" title="36">go s.recvLoop()
         return s, nil</span>
@@ -1613,9 +1615,10 @@ func (s *Session) recvMsg(buf []byte) error <span class="cov10" title="67">{
                 return err
         }</span>
         <span class="cov8" title="32">defer func() </span><span class="cov8" title="32">{
-                // TODO: expose this error
-                _ = r.Close()
-        }</span>()
+                if err := r.Close(); err != nil </span><span class="cov0" title="0">{
+                        s.logger.Warn("failed to close message reader", "error", err)
+                }</span>
+        }()
 
         // 3. Peek/Read the start of the message
         <span class="cov8" title="32">n, err := r.Read(buf)

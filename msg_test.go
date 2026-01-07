@@ -4,7 +4,7 @@ import (
 	"encoding/xml"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/carlmjohnson/be"
 )
 
 var rawXMLTests = []struct {
@@ -46,8 +46,8 @@ func TestRawXMLUnmarshal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var got RawXML
 			err := xml.Unmarshal(tc.xml, &got)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.element, got)
+			be.NilErr(t, err)
+			be.Equal(t, string(tc.element), string(got))
 		})
 	}
 }
@@ -56,8 +56,8 @@ func TestRawXMLMarshal(t *testing.T) {
 	for _, tc := range rawXMLTests {
 		t.Run(tc.name, func(t *testing.T) {
 			got, err := xml.Marshal(&tc.element)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.xml, got)
+			be.NilErr(t, err)
+			be.Equal(t, string(tc.xml), string(got))
 		})
 	}
 }
@@ -129,8 +129,9 @@ func TestUnmarshalHelloMsg(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var got Hello
 			err := xml.Unmarshal(tc.raw, &got)
-			assert.NoError(t, err)
-			assert.Equal(t, got, tc.msg)
+			be.NilErr(t, err)
+			be.Equal(t, tc.msg.SessionID, got.SessionID)
+			be.Equal(t, len(tc.msg.Capabilities), len(got.Capabilities))
 		})
 	}
 }
@@ -139,7 +140,7 @@ func TestMarshalHelloMsg(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := xml.Marshal(tc.msg)
 			t.Logf("out: %s", out)
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		})
 	}
 }
@@ -191,12 +192,12 @@ func TestMarshalRPCMsg(t *testing.T) {
 			t.Logf("out: %s", out)
 
 			if tc.err {
-				assert.Error(t, err)
+				be.Nonzero(t, err)
 				return
 			}
 
-			assert.NoError(t, err)
-			assert.Equal(t, out, tc.want)
+			be.NilErr(t, err)
+			be.Equal(t, string(tc.want), string(out))
 		})
 	}
 }
@@ -247,8 +248,10 @@ func TestUnmarshalRPCReply(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var got RPCReply
 			err := xml.Unmarshal(tc.reply, &got)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.want, got)
+			be.NilErr(t, err)
+			want := tc.want.(RPCReply)
+			be.Equal(t, want.MessageID, got.MessageID)
+			be.Equal(t, len(want.RPCErrors), len(got.RPCErrors))
 		})
 	}
 

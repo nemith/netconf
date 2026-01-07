@@ -4,7 +4,7 @@ import (
 	"encoding/xml"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/carlmjohnson/be"
 )
 
 func TestMarshalDatastore(t *testing.T) {
@@ -30,9 +30,9 @@ func TestMarshalDatastore(t *testing.T) {
 
 			got, err := xml.Marshal(&v)
 			if !tc.shouldErr {
-				assert.NoError(t, err)
+				be.NilErr(t, err)
 			}
-			assert.Equal(t, tc.want, string(got))
+			be.Equal(t, tc.want, string(got))
 		})
 	}
 }
@@ -73,7 +73,7 @@ func TestGetConfig_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -99,9 +99,9 @@ func TestGetConfig_Exec(t *testing.T) {
 	for _, tc := range tests {
 		session, _ := mockSession(t, tc.serverReply)
 		got, err := tc.op.Exec(t.Context(), session)
-		assert.NoError(t, err)
+		be.NilErr(t, err)
 		expected := `<top xmlns="http://example.com/schema/1.2/config"><users><user><name>root</name></user></users></top>`
-		assert.Equal(t, expected, string(got))
+		be.Equal(t, expected, string(got))
 
 	}
 
@@ -159,7 +159,7 @@ func TestEditConfig_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -186,9 +186,9 @@ func TestEditConfig_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -222,7 +222,7 @@ func TestCopyConfig_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -249,9 +249,9 @@ func TestCopyConfig_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -276,7 +276,7 @@ func TestDeleteConfig_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -301,9 +301,9 @@ func TestDeleteConfig_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -328,7 +328,7 @@ func TestLock_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -354,9 +354,9 @@ func TestLock_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -381,7 +381,7 @@ func TestUnlock_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -407,9 +407,9 @@ func TestUnlock_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -434,7 +434,7 @@ func TestValidate_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -460,9 +460,9 @@ func TestValidate_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -508,7 +508,7 @@ func TestCommit_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -535,9 +535,9 @@ func TestCommit_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -567,7 +567,7 @@ func TestCancelCommit_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -591,9 +591,9 @@ func TestCancelCommit_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }
@@ -616,7 +616,7 @@ func TestDiscardChanges_MarshalXML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to marshal: %v", err)
 			}
-			assert.Equal(t, tt.expected, string(got))
+			be.Equal(t, tt.expected, string(got))
 		})
 	}
 }
@@ -640,9 +640,9 @@ func TestDiscardChanges_Exec(t *testing.T) {
 		session, _ := mockSession(t, tc.serverReply)
 		err := tc.op.Exec(t.Context(), session)
 		if tc.shouldError {
-			assert.Error(t, err)
+			be.Nonzero(t, err)
 		} else {
-			assert.NoError(t, err)
+			be.NilErr(t, err)
 		}
 	}
 }

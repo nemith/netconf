@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 	"nemith.io/netconf"
 	"nemith.io/netconf/testutil"
 )
@@ -37,7 +36,7 @@ func mockSession(t *testing.T, rpcReplyInnerXML string) (*netconf.Session, *test
 	// This will immediately consume the first message (Server Hello)
 	// and write the Client Hello to tr.outputs[0].
 	s, err := netconf.NewSession(tr)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	return s, tr
 }
@@ -60,8 +59,8 @@ func TestUnmarshalOk(t *testing.T) {
 			}
 
 			err := xml.Unmarshal([]byte(tc.input), &v)
-			assert.NoError(t, err)
-			assert.Equal(t, tc.want, bool(v.Ok))
+			be.NilErr(t, err)
+			be.Equal(t, tc.want, bool(v.Ok))
 		})
 	}
 }
@@ -89,8 +88,8 @@ func TestGet_MarshalXML(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			out, err := xml.Marshal(&tt.op)
-			require.NoError(t, err)
-			assert.Equal(t, tt.expected, string(out))
+			be.NilErr(t, err)
+			be.Equal(t, tt.expected, string(out))
 		})
 	}
 }
@@ -102,8 +101,8 @@ func TestGet_Exec(t *testing.T) {
 
 	getOp := &Get{}
 	data, err := getOp.Exec(context.Background(), sess)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	expectedData := `<interfaces><interface><name>eth0</name></interface></interfaces>`
-	assert.Equal(t, expectedData, string(data))
+	be.Equal(t, expectedData, string(data))
 }

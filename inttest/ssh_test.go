@@ -6,13 +6,13 @@ package inttest
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"net"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 	"golang.org/x/crypto/ssh"
 	"nemith.io/netconf"
 	"nemith.io/netconf/rpc"
@@ -38,10 +38,10 @@ func sshAuth(t *testing.T) ssh.AuthMethod {
 	case os.Getenv("NETCONF_DUT_SSHKEYFILE") != "":
 		keyFile := os.Getenv("NETCONF_DUT_SSHKEYFILE")
 		key, err := os.ReadFile(keyFile)
-		require.NoErrorf(t, err, "couldn't open ssh private key %q", keyFile)
+		be.NilErr(t, err)
 
 		signer, err := ssh.ParsePrivateKey(key)
-		require.NoError(t, err)
+		be.NilErr(t, err)
 		return ssh.PublicKeys(signer)
 	}
 	t.Fatal("NETCONF_DUT_SSHADDR tests require NETCONF_DUT_SSHPASS or NETCONF_DUT_SSHKEYFILE")
@@ -77,7 +77,7 @@ func setupSSH(t *testing.T) *netconf.Session {
 
 	ctx := context.Background()
 	tr, err := ncssh.Dial(ctx, "tcp", addr, config)
-	require.NoErrorf(t, err, "failed to connect to dut %q", addr)
+	be.NilErr(t, err)
 
 	// capture the framed communication
 	inCap := newLogWriter("S: ", t)
@@ -86,16 +86,16 @@ func setupSSH(t *testing.T) *netconf.Session {
 	tr.DebugCapture(inCap, outCap)
 
 	session, err := netconf.NewSession(tr)
-	require.NoError(t, err, "failed to create netconf session")
+	be.NilErr(t, err)
 	return session
 }
 
 func TestSSHDial(t *testing.T) {
 	session := setupSSH(t)
-	assert.NotZero(t, session.SessionID())
-	assert.NotZero(t, session.ServerCaps().Len())
+	be.Nonzero(t, session.SessionID())
+	be.Nonzero(t, session.ServerCaps().Len())
 	err := session.Close(context.Background())
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 }
 
 func TestSSHGetConfig(t *testing.T) {
@@ -103,12 +103,12 @@ func TestSSHGetConfig(t *testing.T) {
 
 	ctx := context.Background()
 	config, err := rpc.GetConfig{Source: rpc.Running}.Exec(ctx, session)
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 	t.Logf("configuration: %s", config)
 
 	_ = session.Close(ctx)
 	// TODO: investigate why this fails on some devices
-	//assert.NoError(t, err)
+	//be.NilErr(t, err)
 }
 
 func TestBadGetConfig(t *testing.T) {
@@ -116,9 +116,9 @@ func TestBadGetConfig(t *testing.T) {
 
 	ctx := context.Background()
 	cfg, err := rpc.GetConfig{Source: "non-exist"}.Exec(ctx, session)
-	assert.Nil(t, cfg)
+	be.Zero(t, cfg)
 	var rpcErr netconf.RPCError
-	assert.ErrorAs(t, err, &rpcErr)
+	be.True(t, errors.As(err, &rpcErr))
 }
 
 func TestJunosCommand(t *testing.T) {
@@ -139,6 +139,6 @@ func TestJunosCommand(t *testing.T) {
 
 	ctx := context.Background()
 	err := session.Exec(ctx, &cmd, &reply)
-	assert.NoError(t, err)
-	assert.Empty(t, reply.RPCErrors)
+	be.NilErr(t, err)
+	be.Equal(t, 0, len(reply.RPCErrors))
 }

@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -14,8 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/carlmjohnson/be"
 )
 
 // testServer handles the boilerplate of a one-shot TLS server
@@ -31,14 +31,14 @@ func newTestServer(t *testing.T) *testServer {
 
 	// 1. Generate ephemeral self-signed cert
 	cert, err := generateSelfSignedCert()
-	require.NoError(t, err, "failed to generate cert")
+	be.NilErr(t, err)
 
 	config := &tls.Config{
 		Certificates: []tls.Certificate{cert},
 	}
 
 	ln, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	return &testServer{
 		t:        t,
@@ -92,7 +92,7 @@ func (s *testServer) Serve(handler func(net.Conn) error) {
 func (s *testServer) Wait(t *testing.T) {
 	t.Helper()
 	err := <-s.errCh
-	assert.NoError(t, err, "server handler failed")
+	be.NilErr(t, err)
 }
 
 func TestTransport_Dial(t *testing.T) {
@@ -113,36 +113,36 @@ func TestTransport_Dial(t *testing.T) {
 
 	config := &tls.Config{InsecureSkipVerify: true}
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Read Greeting
 	r, err := tr.MsgReader()
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	greeting, _ := io.ReadAll(r)
-	assert.Equal(t, "muffins", string(greeting))
+	be.Equal(t, "muffins", string(greeting))
 
 	// Write Data
 	w, err := tr.MsgWriter()
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	_, err = io.WriteString(w, "a man a plan a canal panama")
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = tr.Close() // Send EOF to server
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	srv.Wait(t)
 
-	assert.Equal(t, "a man a plan a canal panama]]>]]>", string(serverSeen))
+	be.Equal(t, "a man a plan a canal panama]]>]]>", string(serverSeen))
 }
 
 func TestTransport_DialContextCancel(t *testing.T) {
 	// Raw TCP listener that accepts but never handshakes
 	ln, err := net.Listen("tcp", "localhost:0")
-	require.NoError(t, err)
+	be.NilErr(t, err)
 	defer func() {
 		if err := ln.Close(); err != nil {
 			t.Logf("failed to close listener: %v", err)
@@ -163,8 +163,8 @@ func TestTransport_DialContextCancel(t *testing.T) {
 	start := time.Now()
 	_, err = Dial(ctx, "tcp", ln.Addr().String(), config)
 
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.WithinDuration(t, start, time.Now(), 200*time.Millisecond)
+	be.True(t, errors.Is(err, context.DeadlineExceeded))
+	be.True(t, time.Since(start) <= 200*time.Millisecond)
 }
 
 func TestTransport_MultipleMessages(t *testing.T) {
@@ -183,35 +183,35 @@ func TestTransport_MultipleMessages(t *testing.T) {
 
 	config := &tls.Config{InsecureSkipVerify: true}
 	tr, err := Dial(context.Background(), "tcp", srv.Addr(), config)
-	require.NoError(t, err)
+	be.NilErr(t, err)
 
 	r, _ := tr.MsgReader()
 
 	_, err = io.ReadAll(r) // Consume greeting
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Msg 1
 	w, _ := tr.MsgWriter()
 	_, err = io.WriteString(w, "msg1")
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	// Msg 2
 	w, _ = tr.MsgWriter()
 	_, err = io.WriteString(w, "msg2")
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = w.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	err = tr.Close()
-	assert.NoError(t, err)
+	be.NilErr(t, err)
 
 	srv.Wait(t)
 
-	assert.Equal(t, "msg1]]>]]>msg2]]>]]>", string(serverSeen))
+	be.Equal(t, "msg1]]>]]>msg2]]>]]>", string(serverSeen))
 }
 
 // generateSelfSignedCert creates an in-memory generic cert for testing

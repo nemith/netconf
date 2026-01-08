@@ -2,8 +2,9 @@ package tls
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -216,7 +217,7 @@ func TestTransport_MultipleMessages(t *testing.T) {
 
 // generateSelfSignedCert creates an in-memory generic cert for testing
 func generateSelfSignedCert() (tls.Certificate, error) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return tls.Certificate{}, err
 	}

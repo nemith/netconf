@@ -34,16 +34,23 @@ type OkReply struct {
 }
 
 type Get struct {
-	Filter Filter `xml:"filter,omitempty"`
+	Filter       Filter
+	WithDefaults WithDefaultsMode
 }
 
 func (rpc *Get) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	req := struct {
-		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
-		Filter  Filter   `xml:"filter,omitempty"`
+		XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
+		Filter       Filter               `xml:"filter,omitempty"`
+		WithDefaults *withDefaultsElement `xml:",omitempty"`
 	}{
 		Filter: rpc.Filter,
 	}
+
+	if rpc.WithDefaults != "" {
+		req.WithDefaults = &withDefaultsElement{Mode: rpc.WithDefaults}
+	}
+
 	return e.Encode(&req)
 }
 

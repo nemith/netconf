@@ -21,6 +21,6 @@
 - [ ] Pool/SessionManager for automatic reconnects, retries, etc.
 - [ ] Call Home support
 - [ ] nccurl command to issue rpc requests from the cli
-- [~] More RFC support 
-  - [ ] Partial Lock
+- [X] More RFC support 
+  - [X] Partial Lock
   - [X] with-defaults

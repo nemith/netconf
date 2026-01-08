@@ -414,6 +414,123 @@ func TestUnlock_Exec(t *testing.T) {
 	}
 }
 
+func TestPartialLock_MarshalXML(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       PartialLock
+		expected string
+	}{
+		{
+			name: "singleSelect",
+			op: PartialLock{
+				Select: []string{"/interfaces/interface[name='eth0']"},
+			},
+			expected: `<partial-lock xmlns="urn:ietf:params:xml:ns:netconf:partial-lock:1.0"><select>/interfaces/interface[name='eth0']</select></partial-lock>`,
+		},
+		{
+			name: "multipleSelect",
+			op: PartialLock{
+				Select: []string{
+					"/interfaces/interface[name='eth0']",
+					"/interfaces/interface[name='eth1']",
+				},
+			},
+			expected: `<partial-lock xmlns="urn:ietf:params:xml:ns:netconf:partial-lock:1.0"><select>/interfaces/interface[name='eth0']</select><select>/interfaces/interface[name='eth1']</select></partial-lock>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := xml.Marshal(tt.op)
+			be.NilErr(t, err)
+			be.Equal(t, tt.expected, string(got))
+		})
+	}
+}
+
+func TestPartialLock_Exec(t *testing.T) {
+	tests := []struct {
+		name        string
+		op          PartialLock
+		serverReply string
+		shouldError bool
+		lockID      uint32
+	}{
+		{
+			name: "success",
+			op: PartialLock{
+				Select: []string{"/interfaces/interface[name='eth0']"},
+			},
+			serverReply: `<lock-id>1234</lock-id><locked-node>/interfaces/interface[name='eth0']</locked-node>`,
+			shouldError: false,
+			lockID:      1234,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			session, _ := mockSession(t, tc.serverReply)
+			reply, err := tc.op.Exec(t.Context(), session)
+			if tc.shouldError {
+				be.Nonzero(t, err)
+			} else {
+				be.NilErr(t, err)
+				be.Equal(t, tc.lockID, reply.LockID)
+			}
+		})
+	}
+}
+
+func TestPartialUnlock_MarshalXML(t *testing.T) {
+	tests := []struct {
+		name     string
+		op       PartialUnlock
+		expected string
+	}{
+		{
+			name: "basic",
+			op: PartialUnlock{
+				LockID: 1234,
+			},
+			expected: `<partial-unlock xmlns="urn:ietf:params:xml:ns:netconf:partial-lock:1.0"><lock-id>1234</lock-id></partial-unlock>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := xml.Marshal(tt.op)
+			be.NilErr(t, err)
+			be.Equal(t, tt.expected, string(got))
+		})
+	}
+}
+
+func TestPartialUnlock_Exec(t *testing.T) {
+	tests := []struct {
+		name        string
+		op          PartialUnlock
+		serverReply string
+		shouldError bool
+	}{
+		{
+			name: "okReply",
+			op: PartialUnlock{
+				LockID: 1234,
+			},
+			serverReply: `<ok/>`,
+			shouldError: false,
+		},
+	}
+
+	for _, tc := range tests {
+		session, _ := mockSession(t, tc.serverReply)
+		err := tc.op.Exec(t.Context(), session)
+		if tc.shouldError {
+			be.Nonzero(t, err)
+		} else {
+			be.NilErr(t, err)
+		}
+	}
+}
+
 func TestValidate_MarshalXML(t *testing.T) {
 	tests := []struct {
 		name     string

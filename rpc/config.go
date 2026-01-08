@@ -366,6 +366,87 @@ func (rpc Unlock) Exec(ctx context.Context, session *netconf.Session) error {
 	return nil
 }
 
+// PartialLock locks specific subtrees of the running datastore using XPath
+// expressions as defined in RFC 5717.
+type PartialLock struct {
+	Select []string
+}
+
+func (rpc PartialLock) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if len(rpc.Select) == 0 {
+		return fmt.Errorf("partial-lock: must have at least one lock selection (xpath)")
+	}
+
+	type selectExpr struct {
+		XMLName xml.Name `xml:"select"`
+		Expr    string   `xml:",innerxml"`
+	}
+
+	selects := make([]selectExpr, len(rpc.Select))
+	for i, s := range rpc.Select {
+		selects[i] = selectExpr{Expr: s}
+	}
+
+	req := struct {
+		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:partial-lock:1.0 partial-lock"`
+		Select  []selectExpr
+	}{
+		Select: selects,
+	}
+
+	return e.Encode(&req)
+}
+
+// PartialLockReply is the response from a successful partial-lock operation.
+type PartialLockReply struct {
+	netconf.RPCReply
+	LockID        uint32   `xml:"lock-id"`
+	LockedNodes   []string `xml:"locked-node"`
+	RunningErrors []string `xml:"running>error,omitempty"`
+}
+
+func (rpc PartialLock) Exec(ctx context.Context, session *netconf.Session) (*PartialLockReply, error) {
+	var resp PartialLockReply
+	if err := session.Exec(ctx, rpc, &resp); err != nil {
+		return nil, err
+	}
+
+	return &resp, nil
+}
+
+// PartialUnlock releases a partial lock acquired by PartialLock.
+type PartialUnlock struct {
+	LockID uint32
+}
+
+func (rpc PartialUnlock) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
+	if rpc.LockID == 0 {
+		return fmt.Errorf("partial-unlock: lock id is not set")
+	}
+
+	req := struct {
+		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:partial-lock:1.0 partial-unlock"`
+		LockID  uint32   `xml:"lock-id"`
+	}{
+		LockID: rpc.LockID,
+	}
+
+	return e.Encode(&req)
+}
+
+func (rpc PartialUnlock) Exec(ctx context.Context, session *netconf.Session) error {
+	var resp OkReply
+	if err := session.Exec(ctx, rpc, &resp); err != nil {
+		return err
+	}
+
+	if !resp.OK {
+		return fmt.Errorf("partial-unlock: operation failed, <ok> not received")
+	}
+
+	return nil
+}
+
 type Validate struct {
 	Source any
 }

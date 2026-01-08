@@ -59,7 +59,7 @@
 				
 				<option value="file1">nemith.io/netconf/msg.go (46.7%)</option>
 				
-				<option value="file2">nemith.io/netconf/rpc/config.go (80.4%)</option>
+				<option value="file2">nemith.io/netconf/rpc/config.go (79.8%)</option>
 				
 				<option value="file3">nemith.io/netconf/rpc/filter.go (100.0%)</option>
 				
@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (87.1%)</option>
+				<option value="file7">nemith.io/netconf/session.go (88.4%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (63.5%)</option>
 				
@@ -851,6 +851,87 @@ func (rpc Unlock) Exec(ctx context.Context, session *netconf.Session) error <spa
         <span class="cov1" title="1">return nil</span>
 }
 
+// PartialLock locks specific subtrees of the running datastore using XPath
+// expressions as defined in RFC 5717.
+type PartialLock struct {
+        Select []string
+}
+
+func (rpc PartialLock) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov2" title="3">{
+        if len(rpc.Select) == 0 </span><span class="cov0" title="0">{
+                return fmt.Errorf("partial-lock: must have at least one lock selection (xpath)")
+        }</span>
+
+        <span class="cov2" title="3">type selectExpr struct {
+                XMLName xml.Name `xml:"select"`
+                Expr    string   `xml:",innerxml"`
+        }
+
+        selects := make([]selectExpr, len(rpc.Select))
+        for i, s := range rpc.Select </span><span class="cov3" title="4">{
+                selects[i] = selectExpr{Expr: s}
+        }</span>
+
+        <span class="cov2" title="3">req := struct {
+                XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:partial-lock:1.0 partial-lock"`
+                Select  []selectExpr
+        }{
+                Select: selects,
+        }
+
+        return e.Encode(&amp;req)</span>
+}
+
+// PartialLockReply is the response from a successful partial-lock operation.
+type PartialLockReply struct {
+        netconf.RPCReply
+        LockID        uint32   `xml:"lock-id"`
+        LockedNodes   []string `xml:"locked-node"`
+        RunningErrors []string `xml:"running&gt;error,omitempty"`
+}
+
+func (rpc PartialLock) Exec(ctx context.Context, session *netconf.Session) (*PartialLockReply, error) <span class="cov1" title="1">{
+        var resp PartialLockReply
+        if err := session.Exec(ctx, rpc, &amp;resp); err != nil </span><span class="cov0" title="0">{
+                return nil, err
+        }</span>
+
+        <span class="cov1" title="1">return &amp;resp, nil</span>
+}
+
+// PartialUnlock releases a partial lock acquired by PartialLock.
+type PartialUnlock struct {
+        LockID uint32
+}
+
+func (rpc PartialUnlock) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov2" title="2">{
+        if rpc.LockID == 0 </span><span class="cov0" title="0">{
+                return fmt.Errorf("partial-unlock: lock id is not set")
+        }</span>
+
+        <span class="cov2" title="2">req := struct {
+                XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:partial-lock:1.0 partial-unlock"`
+                LockID  uint32   `xml:"lock-id"`
+        }{
+                LockID: rpc.LockID,
+        }
+
+        return e.Encode(&amp;req)</span>
+}
+
+func (rpc PartialUnlock) Exec(ctx context.Context, session *netconf.Session) error <span class="cov1" title="1">{
+        var resp OkReply
+        if err := session.Exec(ctx, rpc, &amp;resp); err != nil </span><span class="cov0" title="0">{
+                return err
+        }</span>
+
+        <span class="cov1" title="1">if !resp.OK </span><span class="cov0" title="0">{
+                return fmt.Errorf("partial-unlock: operation failed, &lt;ok&gt; not received")
+        }</span>
+
+        <span class="cov1" title="1">return nil</span>
+}
+
 type Validate struct {
         Source any
 }
@@ -1174,7 +1255,7 @@ func (b ExtantBool) MarshalXML(e *xml.Encoder, start xml.StartElement) error <sp
         <span class="cov4" title="3">return e.EncodeElement(struct{}{}, start)</span>
 }
 
-func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov10" title="12">{
+func (b *ExtantBool) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error <span class="cov10" title="13">{
         *b = true
         return d.Skip()
 }</span>
@@ -1631,18 +1712,18 @@ func (s *Session) queueSend(ctx context.Context, marshal func(io.Writer) error) 
         }
 
         select </span>{
-        case s.outQ &lt;- req:<span class="cov8" title="44">
+        case s.outQ &lt;- req:<span class="cov8" title="45">
                 // Successfully queued, wait for result
                 select </span>{
                 case err := &lt;-done:<span class="cov8" title="44">
                         return err</span>
-                case &lt;-ctx.Done():<span class="cov0" title="0">
+                case &lt;-ctx.Done():<span class="cov1" title="1">
                         return ctx.Err()</span>
                 }
         case &lt;-s.closing:<span class="cov0" title="0">
                 // Session is closing, stop accepting sends
                 return ErrClosed</span>
-        case &lt;-ctx.Done():<span class="cov3" title="3">
+        case &lt;-ctx.Done():<span class="cov2" title="2">
                 return ctx.Err()</span>
         }
 }
@@ -1668,10 +1749,10 @@ func (s *Session) sendMsg(marshal func(io.Writer) error) (err error) <span class
 func (s *Session) sendLoop() <span class="cov8" title="41">{
         defer close(s.sendDone)
 
-        for outMsg := range s.outQ </span><span class="cov8" title="44">{
+        for outMsg := range s.outQ </span><span class="cov8" title="45">{
                 // Check if context was cancelled while queued
                 select </span>{
-                case &lt;-outMsg.ctx.Done():<span class="cov0" title="0">
+                case &lt;-outMsg.ctx.Done():<span class="cov1" title="1">
                         outMsg.done &lt;- outMsg.ctx.Err()
                         continue</span>
                 default:<span class="cov8" title="44"></span>

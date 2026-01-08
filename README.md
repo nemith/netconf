@@ -146,7 +146,7 @@ func main() {
 | [RFC5277 NETCONF Event Notifications][RFC5277]                                    | :white_check_mark: supported |
 | [RFC5717 Partial Lock Remote Procedure Call (RPC) for NETCONF][RFC5717]           | :bulb: planned               |
 | [RFC8071 NETCONF Call Home and RESTCONF Call Home][RFC8071]                       | :bulb: planned               |
-| [RFC6243 With-defaults Capability for NETCONF][RFC6243]                           | :bulb: planned               |
+| [RFC6243 With-defaults Capability for NETCONF][RFC6243]                           | :white_check_mark: supported |
 | [RFC4743 Using NETCONF over the Simple Object Access Protocol (SOAP)][RFC4743]    | :x: not planned              |
 | [RFC4744 Using the NETCONF Protocol over the BEEP][RFC4744]                       | :x: not planned              |
 

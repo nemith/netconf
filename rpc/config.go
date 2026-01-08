@@ -62,18 +62,24 @@ func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
 type GetConfig struct {
-	Source Datastore
-	Filter Filter
+	Source       Datastore
+	Filter       Filter
+	WithDefaults WithDefaultsMode
 }
 
 func (op GetConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	req := struct {
-		XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
-		Source  Datastore `xml:"source"`
-		Filter  Filter    `xml:"filter,omitempty"`
+		XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
+		Source       Datastore            `xml:"source"`
+		Filter       Filter               `xml:"filter,omitempty"`
+		WithDefaults *withDefaultsElement `xml:",omitempty"`
 	}{
 		Source: op.Source,
 		Filter: op.Filter,
+	}
+
+	if op.WithDefaults != "" {
+		req.WithDefaults = &withDefaultsElement{Mode: op.WithDefaults}
 	}
 
 	return e.Encode(&req)
@@ -232,18 +238,24 @@ func (rpc EditConfig) Exec(ctx context.Context, session *netconf.Session) error 
 //
 // [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
 type CopyConfig struct {
-	Source any
-	Target any
+	Source       any
+	Target       any
+	WithDefaults WithDefaultsMode
 }
 
 func (rpc CopyConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error {
 	req := struct {
-		XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
-		Source  any      `xml:"source"`
-		Target  any      `xml:"target"`
+		XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
+		Source       any                  `xml:"source"`
+		Target       any                  `xml:"target"`
+		WithDefaults *withDefaultsElement `xml:",omitempty"`
 	}{
 		Source: rpc.Source,
 		Target: rpc.Target,
+	}
+
+	if rpc.WithDefaults != "" {
+		req.WithDefaults = &withDefaultsElement{Mode: rpc.WithDefaults}
 	}
 
 	return e.Encode(&req)

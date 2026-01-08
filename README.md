@@ -144,7 +144,7 @@ func main() {
 | [RFC6242 Using the NETCONF Protocol over Secure Shell (SSH)][RFC6242]             | :white_check_mark: supported |
 | [RFC7589 Using the NETCONF Protocol over Transport Layer Security (TLS)][RFC7589] | :white_check_mark: supported |
 | [RFC5277 NETCONF Event Notifications][RFC5277]                                    | :white_check_mark: supported |
-| [RFC5717 Partial Lock Remote Procedure Call (RPC) for NETCONF][RFC5717]           | :bulb: planned               |
+| [RFC5717 Partial Lock Remote Procedure Call (RPC) for NETCONF][RFC5717]           | :white_check_mark: supported |
 | [RFC8071 NETCONF Call Home and RESTCONF Call Home][RFC8071]                       | :bulb: planned               |
 | [RFC6243 With-defaults Capability for NETCONF][RFC6243]                           | :white_check_mark: supported |
 | [RFC4743 Using NETCONF over the Simple Object Access Protocol (SOAP)][RFC4743]    | :x: not planned              |

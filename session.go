@@ -128,14 +128,26 @@ type Session struct {
 	tr           transport.Transport
 	sessionID    uint64
 	seq          atomic.Uint64
-	closing      atomic.Bool
 	helloTimeout time.Duration
 
 	clientCaps CapabilitySet
 	serverCaps CapabilitySet
 
 	mu   sync.Mutex
-	reqs map[string]*pendingReq
+	reqs map[string]*pendingResp
+
+	// outQ serializes outbound messages since the transport
+	// only allows one active writer at a time
+	outQ chan *writeReq
+
+	// closing is closed when Close() is called, signaling session shutdown
+	closing chan struct{}
+
+	// sendDone is closed when sendLoop exits
+	sendDone chan struct{}
+
+	// closeOnce ensures Close() logic only runs once
+	closeOnce sync.Once
 
 	notifHandler NotifHandler
 	notifCtx     context.Context
@@ -160,7 +172,10 @@ func newSession(transport transport.Transport, opts ...SessionOption) *Session {
 	s := &Session{
 		tr:           transport,
 		clientCaps:   NewCapabilitySet(cfg.clientCaps...),
-		reqs:         make(map[string]*pendingReq),
+		reqs:         make(map[string]*pendingResp),
+		outQ:         make(chan *writeReq),
+		closing:      make(chan struct{}),
+		sendDone:     make(chan struct{}),
 		notifHandler: cfg.notifHandler,
 		notifCtx:     notifCtx,
 		notifCancel:  notifCancel,
@@ -189,6 +204,7 @@ func NewSession(transport transport.Transport, opts ...SessionOption) (*Session,
 		return nil, err
 	}
 
+	go s.sendLoop()
 	go s.recvLoop()
 	return s, nil
 }
@@ -206,6 +222,7 @@ func (s *Session) handshake(ctx context.Context) error {
 		Capabilities: slices.Collect(s.clientCaps.All()),
 	}
 
+	// Handshake happens before sendLoop starts, so we write directly
 	w, err := s.tr.MsgWriter()
 	if err != nil {
 		if ctx.Err() != nil {
@@ -302,9 +319,16 @@ func startElement(d *xml.Decoder) (*xml.StartElement, error) {
 	}
 }
 
-type pendingReq struct {
+type pendingResp struct {
 	msg chan *Message
 	ctx context.Context
+}
+
+// writeReq represents a queued write request
+type writeReq struct {
+	writeFn func(io.Writer) error
+	done    chan error
+	ctx     context.Context
 }
 
 type msgReader struct {
@@ -324,6 +348,75 @@ func (r *msgReader) Close() error {
 	return err
 }
 
+// queueSend queues a message for writing and waits for completion.
+// Returns an error if the write fails or context is cancelled.
+func (s *Session) queueSend(ctx context.Context, marshal func(io.Writer) error) error {
+	// Check if we're closed before attempting to send
+	select {
+	case <-s.closing:
+		return ErrClosed
+	default:
+	}
+
+	done := make(chan error, 1)
+	req := &writeReq{
+		writeFn: marshal,
+		done:    done,
+		ctx:     ctx,
+	}
+
+	select {
+	case s.outQ <- req:
+		// Successfully queued, wait for result
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	case <-s.closing:
+		// Session is closing, stop accepting sends
+		return ErrClosed
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// sendMsg writes a message to the transport. Only one write is allowed at a time.
+// This method assumes it has exclusive access to MsgWriter().
+func (s *Session) sendMsg(marshal func(io.Writer) error) (err error) {
+	w, err := s.tr.MsgWriter()
+	if err != nil {
+		return fmt.Errorf("failed to get message writer: %w", err)
+	}
+	defer func() {
+		if closeErr := w.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("failed to flush message: %w", closeErr)
+		}
+	}()
+
+	return marshal(w)
+}
+
+// sendLoop processes the outbound write queue, ensuring only one message
+// is written to the transport at a time.
+func (s *Session) sendLoop() {
+	defer close(s.sendDone)
+
+	for outMsg := range s.outQ {
+		// Check if context was cancelled while queued
+		select {
+		case <-outMsg.ctx.Done():
+			outMsg.done <- outMsg.ctx.Err()
+			continue
+		default:
+		}
+
+		// Send the message and report result
+		outMsg.done <- s.sendMsg(outMsg.writeFn)
+	}
+}
+
 // recvLoop is the main receive loop.  It runs concurrently to be able to handle
 // interleaved messages (like notifications).
 func (s *Session) recvLoop() {
@@ -333,8 +426,13 @@ func (s *Session) recvLoop() {
 	for {
 		if err := s.recvMsg(buf); err != nil {
 			// Only log errors for unexpected failures (not graceful shutdown)
-			if !s.closing.Load() && !errors.Is(err, io.EOF) {
-				s.logger.Error("failed to receive message", "error", err)
+			select {
+			case <-s.closing:
+				// Graceful shutdown, don't log
+			default:
+				if !errors.Is(err, io.EOF) {
+					s.logger.Error("failed to receive message", "error", err)
+				}
 			}
 			break
 		}
@@ -349,7 +447,10 @@ func (s *Session) recvLoop() {
 
 	_ = s.tr.Close()
 
-	if !s.closing.Load() {
+	select {
+	case <-s.closing:
+		// Graceful shutdown
+	default:
 		s.logger.Warn("connection closed unexpectedly")
 	}
 }
@@ -500,7 +601,7 @@ func (s *Session) Do(ctx context.Context, rpc *RPC) (*Message, error) {
 		return nil, fmt.Errorf("rpc with message-id %q is already pending", rpc.MessageID)
 	}
 
-	s.reqs[rpc.MessageID] = &pendingReq{
+	s.reqs[rpc.MessageID] = &pendingResp{
 		msg: ch,
 		ctx: ctx,
 	}
@@ -513,16 +614,11 @@ func (s *Session) Do(ctx context.Context, rpc *RPC) (*Message, error) {
 		s.mu.Unlock()
 	}()
 
-	w, err := s.tr.MsgWriter()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get message writer: %w", err)
-	}
-	if err := xml.NewEncoder(w).Encode(rpc); err != nil {
-		_ = w.Close() // try to close anyway
-		return nil, fmt.Errorf("failed to encode request: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("failed to flush request: %w", err)
+	// Send through the queue - marshal function avoids buffer allocation
+	if err := s.queueSend(ctx, func(w io.Writer) error {
+		return xml.NewEncoder(w).Encode(rpc)
+	}); err != nil {
+		return nil, err
 	}
 
 	// Wait for the response
@@ -576,29 +672,46 @@ func (s *Session) Exec(ctx context.Context, op any, reply any) error {
 // Close will gracefully close the sessions first by sending a `close-session`
 // operation to the remote and then closing the underlying transport
 func (s *Session) Close(ctx context.Context) error {
-	s.closing.Store(true)
+	var closeErr error
 
-	// Cancel notification context to signal handlers to stop
-	s.notifCancel()
+	s.closeOnce.Do(func() {
+		// Cancel notification context to signal handlers to stop
+		s.notifCancel()
 
-	type closeSession struct {
-		XMLName xml.Name `xml:"close-session"`
-	}
+		type closeSession struct {
+			XMLName xml.Name `xml:"close-session"`
+		}
 
-	// This may fail so save the error but still close the underlying transport.
-	req := NewRPC(&closeSession{})
-	resp, _ := s.Do(ctx, req)
-	if resp != nil {
-		_ = resp.Close()
-	}
+		// This may fail so save the error but still close the underlying transport.
+		req := NewRPC(&closeSession{})
+		resp, _ := s.Do(ctx, req)
+		if resp != nil {
+			_ = resp.Close()
+		}
 
-	// Close the connection and ignore errors if the remote side hung up first.
-	if err := s.tr.Close(); err != nil &&
-		!errors.Is(err, net.ErrClosed) &&
-		!errors.Is(err, io.EOF) &&
-		!errors.Is(err, syscall.EPIPE) {
-		return err
-	}
+		// Signal session is closing - this stops new sends from being queued
+		close(s.closing)
 
-	return nil
+		// Now safe to close outQ since no new sends can reach it
+		close(s.outQ)
+
+		// Wait for sendLoop to exit
+		select {
+		case <-s.sendDone:
+			// sendLoop finished cleanly
+		case <-ctx.Done():
+			// Context expired - close transport immediately
+			s.logger.Warn("close context expired before sendLoop finished", "error", ctx.Err())
+		}
+
+		// Close the connection and ignore errors if the remote side hung up first.
+		if err := s.tr.Close(); err != nil &&
+			!errors.Is(err, net.ErrClosed) &&
+			!errors.Is(err, io.EOF) &&
+			!errors.Is(err, syscall.EPIPE) {
+			closeErr = err
+		}
+	})
+
+	return closeErr
 }

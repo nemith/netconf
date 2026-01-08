@@ -59,17 +59,17 @@
 				
 				<option value="file1">nemith.io/netconf/msg.go (46.7%)</option>
 				
-				<option value="file2">nemith.io/netconf/rpc/config.go (79.6%)</option>
+				<option value="file2">nemith.io/netconf/rpc/config.go (80.4%)</option>
 				
 				<option value="file3">nemith.io/netconf/rpc/filter.go (100.0%)</option>
 				
 				<option value="file4">nemith.io/netconf/rpc/notification.go (100.0%)</option>
 				
-				<option value="file5">nemith.io/netconf/rpc/rpc.go (81.8%)</option>
+				<option value="file5">nemith.io/netconf/rpc/rpc.go (84.6%)</option>
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (88.4%)</option>
+				<option value="file7">nemith.io/netconf/session.go (87.1%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (63.5%)</option>
 				
@@ -497,12 +497,12 @@ import (
 // RFC6241 section 7.1
 type Datastore string
 
-func (d Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov6" title="27">{
+func (d Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov6" title="36">{
         if d == "" </span><span class="cov1" title="1">{
                 return fmt.Errorf("datastore name cannot be empty")
         }</span>
 
-        <span class="cov6" title="26">for i := range len(d) </span><span class="cov10" title="216">{
+        <span class="cov6" title="35">for i := range len(d) </span><span class="cov10" title="279">{
                 c := d[i]
                 if (c &lt; 'a' || c &gt; 'z') &amp;&amp;
                         (c &lt; 'A' || c &gt; 'Z') &amp;&amp;
@@ -512,7 +512,7 @@ func (d Datastore) MarshalXML(e *xml.Encoder, start xml.StartElement) error <spa
                 }</span>
         }
 
-        <span class="cov6" title="25">inner := struct {
+        <span class="cov6" title="34">inner := struct {
                 Elem string `xml:",innerxml"`
         }{Elem: "&lt;" + string(d) + "/&gt;"}
 
@@ -547,22 +547,28 @@ func (u URL) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span clas
 //
 // [RFC6241 7.1]: https://www.rfc-editor.org/rfc/rfc6241.html#section-7.1
 type GetConfig struct {
-        Source Datastore
-        Filter Filter
+        Source       Datastore
+        Filter       Filter
+        WithDefaults WithDefaultsMode
 }
 
-func (op GetConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov3" title="4">{
+func (op GetConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov4" title="9">{
         req := struct {
-                XMLName xml.Name  `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
-                Source  Datastore `xml:"source"`
-                Filter  Filter    `xml:"filter,omitempty"`
+                XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get-config"`
+                Source       Datastore            `xml:"source"`
+                Filter       Filter               `xml:"filter,omitempty"`
+                WithDefaults *withDefaultsElement `xml:",omitempty"`
         }{
                 Source: op.Source,
                 Filter: op.Filter,
         }
 
-        return e.Encode(&amp;req)
-}</span>
+        if op.WithDefaults != "" </span><span class="cov3" title="4">{
+                req.WithDefaults = &amp;withDefaultsElement{Mode: op.WithDefaults}
+        }</span>
+
+        <span class="cov4" title="9">return e.Encode(&amp;req)</span>
+}
 
 func (rpc GetConfig) Exec(ctx context.Context, session *netconf.Session) ([]byte, error) <span class="cov1" title="1">{
         var reply GetConfigReply
@@ -717,22 +723,28 @@ func (rpc EditConfig) Exec(ctx context.Context, session *netconf.Session) error 
 //
 // [RFC6241 7.3] https://www.rfc-editor.org/rfc/rfc6241.html#section-7.3
 type CopyConfig struct {
-        Source any
-        Target any
+        Source       any
+        Target       any
+        WithDefaults WithDefaultsMode
 }
 
-func (rpc CopyConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov2" title="3">{
+func (rpc CopyConfig) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov3" title="5">{
         req := struct {
-                XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
-                Source  any      `xml:"source"`
-                Target  any      `xml:"target"`
+                XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 copy-config"`
+                Source       any                  `xml:"source"`
+                Target       any                  `xml:"target"`
+                WithDefaults *withDefaultsElement `xml:",omitempty"`
         }{
                 Source: rpc.Source,
                 Target: rpc.Target,
         }
 
-        return e.Encode(&amp;req)
-}</span>
+        if rpc.WithDefaults != "" </span><span class="cov1" title="1">{
+                req.WithDefaults = &amp;withDefaultsElement{Mode: rpc.WithDefaults}
+        }</span>
+
+        <span class="cov3" title="5">return e.Encode(&amp;req)</span>
+}
 
 func (rpc CopyConfig) Exec(ctx context.Context, session *netconf.Session) error <span class="cov1" title="1">{
         var resp OkReply
@@ -1173,18 +1185,25 @@ type OkReply struct {
 }
 
 type Get struct {
-        Filter Filter `xml:"filter,omitempty"`
+        Filter       Filter
+        WithDefaults WithDefaultsMode
 }
 
-func (rpc *Get) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov4" title="3">{
+func (rpc *Get) MarshalXML(e *xml.Encoder, start xml.StartElement) error <span class="cov7" title="6">{
         req := struct {
-                XMLName xml.Name `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
-                Filter  Filter   `xml:"filter,omitempty"`
+                XMLName      xml.Name             `xml:"urn:ietf:params:xml:ns:netconf:base:1.0 get"`
+                Filter       Filter               `xml:"filter,omitempty"`
+                WithDefaults *withDefaultsElement `xml:",omitempty"`
         }{
                 Filter: rpc.Filter,
         }
-        return e.Encode(&amp;req)
-}</span>
+
+        if rpc.WithDefaults != "" </span><span class="cov3" title="2">{
+                req.WithDefaults = &amp;withDefaultsElement{Mode: rpc.WithDefaults}
+        }</span>
+
+        <span class="cov7" title="6">return e.Encode(&amp;req)</span>
+}
 
 type GetReply struct {
         netconf.RPCReply
@@ -1612,18 +1631,18 @@ func (s *Session) queueSend(ctx context.Context, marshal func(io.Writer) error) 
         }
 
         select </span>{
-        case s.outQ &lt;- req:<span class="cov8" title="45">
+        case s.outQ &lt;- req:<span class="cov8" title="44">
                 // Successfully queued, wait for result
                 select </span>{
                 case err := &lt;-done:<span class="cov8" title="44">
                         return err</span>
-                case &lt;-ctx.Done():<span class="cov1" title="1">
+                case &lt;-ctx.Done():<span class="cov0" title="0">
                         return ctx.Err()</span>
                 }
         case &lt;-s.closing:<span class="cov0" title="0">
                 // Session is closing, stop accepting sends
                 return ErrClosed</span>
-        case &lt;-ctx.Done():<span class="cov2" title="2">
+        case &lt;-ctx.Done():<span class="cov3" title="3">
                 return ctx.Err()</span>
         }
 }
@@ -1649,10 +1668,10 @@ func (s *Session) sendMsg(marshal func(io.Writer) error) (err error) <span class
 func (s *Session) sendLoop() <span class="cov8" title="41">{
         defer close(s.sendDone)
 
-        for outMsg := range s.outQ </span><span class="cov8" title="45">{
+        for outMsg := range s.outQ </span><span class="cov8" title="44">{
                 // Check if context was cancelled while queued
                 select </span>{
-                case &lt;-outMsg.ctx.Done():<span class="cov1" title="1">
+                case &lt;-outMsg.ctx.Done():<span class="cov0" title="0">
                         outMsg.done &lt;- outMsg.ctx.Err()
                         continue</span>
                 default:<span class="cov8" title="44"></span>

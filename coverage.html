@@ -69,11 +69,11 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (88.4%)</option>
+				<option value="file7">nemith.io/netconf/session.go (87.1%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (63.5%)</option>
 				
-				<option value="file9">nemith.io/netconf/transport/frame.go (64.5%)</option>
+				<option value="file9">nemith.io/netconf/transport/frame.go (64.3%)</option>
 				
 				<option value="file10">nemith.io/netconf/transport/ssh/ssh.go (82.2%)</option>
 				
@@ -1712,18 +1712,18 @@ func (s *Session) queueSend(ctx context.Context, marshal func(io.Writer) error) 
         }
 
         select </span>{
-        case s.outQ &lt;- req:<span class="cov8" title="45">
+        case s.outQ &lt;- req:<span class="cov8" title="44">
                 // Successfully queued, wait for result
                 select </span>{
                 case err := &lt;-done:<span class="cov8" title="44">
                         return err</span>
-                case &lt;-ctx.Done():<span class="cov1" title="1">
+                case &lt;-ctx.Done():<span class="cov0" title="0">
                         return ctx.Err()</span>
                 }
         case &lt;-s.closing:<span class="cov0" title="0">
                 // Session is closing, stop accepting sends
                 return ErrClosed</span>
-        case &lt;-ctx.Done():<span class="cov2" title="2">
+        case &lt;-ctx.Done():<span class="cov3" title="3">
                 return ctx.Err()</span>
         }
 }
@@ -1749,10 +1749,10 @@ func (s *Session) sendMsg(marshal func(io.Writer) error) (err error) <span class
 func (s *Session) sendLoop() <span class="cov8" title="41">{
         defer close(s.sendDone)
 
-        for outMsg := range s.outQ </span><span class="cov8" title="45">{
+        for outMsg := range s.outQ </span><span class="cov8" title="44">{
                 // Check if context was cancelled while queued
                 select </span>{
-                case &lt;-outMsg.ctx.Done():<span class="cov1" title="1">
+                case &lt;-outMsg.ctx.Done():<span class="cov0" title="0">
                         outMsg.done &lt;- outMsg.ctx.Err()
                         continue</span>
                 default:<span class="cov8" title="44"></span>
@@ -2432,6 +2432,12 @@ func (f *Framer) MsgWriter() (io.WriteCloser, error) <span class="cov0" title="0
 
 var endOfChunks = []byte("\n##\n")
 
+// maxChunkSize is the maximum chunk size for RFC 6242 chunked framing. RFC 6242
+// allows up to MaxUint32 (4294967295), but on 32-bit systems slice lengths are
+// limited to MaxInt (32-bit *signed*). We use the minimum of both to ensure
+// compatibility across all architectures.
+const maxChunkSize = min(math.MaxUint32, math.MaxInt)
+
 // ErrMalformedChunk represents a message that invalid as defined in the chunk
 // framing in RFC6242
 var ErrMalformedChunk = errors.New("netconf: invalid chunk")
@@ -2518,8 +2524,8 @@ func (r *chunkedReader) Read(p []byte) (int, error) <span class="cov4" title="16
                 return 0, ErrInvalidIO
         }</span>
 
-        <span class="cov4" title="16">if len(p) &gt; math.MaxUint32 </span><span class="cov0" title="0">{
-                p = p[:math.MaxUint32]
+        <span class="cov4" title="16">if len(p) &gt; maxChunkSize </span><span class="cov0" title="0">{
+                p = p[:maxChunkSize]
         }</span>
 
         // If we have no bytes left in the current chunk, we must read a new header
@@ -2626,13 +2632,7 @@ func (w *chunkedWriter) Write(p []byte) (int, error) <span class="cov1" title="2
                 return 0, ErrInvalidIO
         }</span>
 
-        // maxChunkSize is the maximum chunk size for RFC 6242 chunked framing.
-        // RFC 6242 allows up to MaxUint32 (4294967295), but on 32-bit systems
-        // slice lengths are limited to MaxInt32. We use the minimum of both
-        // to ensure compatibility across all architectures.
-        <span class="cov1" title="2">const maxChunkSize = min(math.MaxUint32, math.MaxInt)
-
-        totalWritten := 0
+        <span class="cov1" title="2">totalWritten := 0
         for len(p) &gt; 0 </span><span class="cov1" title="2">{
                 chunkSize := min(len(p), maxChunkSize)
 

@@ -139,6 +139,12 @@ func (f *Framer) MsgWriter() (io.WriteCloser, error) {
 
 var endOfChunks = []byte("\n##\n")
 
+// maxChunkSize is the maximum chunk size for RFC 6242 chunked framing. RFC 6242
+// allows up to MaxUint32 (4294967295), but on 32-bit systems slice lengths are
+// limited to MaxInt (32-bit *signed*). We use the minimum of both to ensure
+// compatibility across all architectures.
+const maxChunkSize = min(math.MaxUint32, math.MaxInt)
+
 // ErrMalformedChunk represents a message that invalid as defined in the chunk
 // framing in RFC6242
 var ErrMalformedChunk = errors.New("netconf: invalid chunk")
@@ -225,8 +231,8 @@ func (r *chunkedReader) Read(p []byte) (int, error) {
 		return 0, ErrInvalidIO
 	}
 
-	if len(p) > math.MaxUint32 {
-		p = p[:math.MaxUint32]
+	if len(p) > maxChunkSize {
+		p = p[:maxChunkSize]
 	}
 
 	// If we have no bytes left in the current chunk, we must read a new header
@@ -332,12 +338,6 @@ func (w *chunkedWriter) Write(p []byte) (int, error) {
 	if w.w == nil {
 		return 0, ErrInvalidIO
 	}
-
-	// maxChunkSize is the maximum chunk size for RFC 6242 chunked framing.
-	// RFC 6242 allows up to MaxUint32 (4294967295), but on 32-bit systems
-	// slice lengths are limited to MaxInt32. We use the minimum of both
-	// to ensure compatibility across all architectures.
-	const maxChunkSize = min(math.MaxUint32, math.MaxInt)
 
 	totalWritten := 0
 	for len(p) > 0 {

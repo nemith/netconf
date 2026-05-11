@@ -69,7 +69,7 @@
 				
 				<option value="file6">nemith.io/netconf/rpc/session.go (0.0%)</option>
 				
-				<option value="file7">nemith.io/netconf/session.go (87.1%)</option>
+				<option value="file7">nemith.io/netconf/session.go (88.4%)</option>
 				
 				<option value="file8">nemith.io/netconf/testutil/transport.go (63.5%)</option>
 				
@@ -1712,18 +1712,18 @@ func (s *Session) queueSend(ctx context.Context, marshal func(io.Writer) error) 
         }
 
         select </span>{
-        case s.outQ &lt;- req:<span class="cov8" title="44">
+        case s.outQ &lt;- req:<span class="cov8" title="45">
                 // Successfully queued, wait for result
                 select </span>{
                 case err := &lt;-done:<span class="cov8" title="44">
                         return err</span>
-                case &lt;-ctx.Done():<span class="cov0" title="0">
+                case &lt;-ctx.Done():<span class="cov1" title="1">
                         return ctx.Err()</span>
                 }
         case &lt;-s.closing:<span class="cov0" title="0">
                 // Session is closing, stop accepting sends
                 return ErrClosed</span>
-        case &lt;-ctx.Done():<span class="cov3" title="3">
+        case &lt;-ctx.Done():<span class="cov2" title="2">
                 return ctx.Err()</span>
         }
 }
@@ -1749,10 +1749,10 @@ func (s *Session) sendMsg(marshal func(io.Writer) error) (err error) <span class
 func (s *Session) sendLoop() <span class="cov8" title="41">{
         defer close(s.sendDone)
 
-        for outMsg := range s.outQ </span><span class="cov8" title="44">{
+        for outMsg := range s.outQ </span><span class="cov8" title="45">{
                 // Check if context was cancelled while queued
                 select </span>{
-                case &lt;-outMsg.ctx.Done():<span class="cov0" title="0">
+                case &lt;-outMsg.ctx.Done():<span class="cov1" title="1">
                         outMsg.done &lt;- outMsg.ctx.Err()
                         continue</span>
                 default:<span class="cov8" title="44"></span>
